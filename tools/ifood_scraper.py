@@ -38,7 +38,7 @@ def scrape_ifood_menu(url: str):
             "model": "google_genai/gemini-2.0-flash",
             "api_key": gemini_api_key,
             "temperature": 0,
-            "model_tokens": 8192,
+            "model_tokens": 1048576,
         },
         "verbose": True,
         "scraper": {
