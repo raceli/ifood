@@ -39,13 +39,14 @@ def scrape_ifood_menu(url: str):
             "api_key": gemini_api_key,
             "temperature": 0,
             "max_output_tokens": 8192,
+            "model_tokens": 1048576,
         },
         "verbose": True,
         "scraper": {
             "headless": True,
             "pre_scrape_actions": [
-                "page.wait_for_timeout(2000)",
-                "for i in range(10): page.keyboard.press('PageDown'); page.wait_for_timeout(500)"
+                "page.wait_for_timeout(3000)",
+                "for i in range(5): page.evaluate('window.scrollTo(0, document.body.scrollHeight)'); page.wait_for_timeout(2000)"
             ]
         }
     }
@@ -89,7 +90,7 @@ def scrape_ifood_menu(url: str):
 
 if __name__ == '__main__':
     # The iFood URL to scrape
-    ifood_url = "https://www.ifood.com.br/delivery/sao-paulo-sp/bologna-padaria-restaurante-e-rotisseria-consolacao/19cf4c5b-b50d-4472-9bd2-3ca177759d63"
+    ifood_url = "https://www.ifood.com.br/delivery/sao-paulo-sp/ampm-portal-campo-belo-campo-belo/792a5590-0739-427c-a2d7-8a26e77a90903"
     
     scraped_data = scrape_ifood_menu(ifood_url)
     
