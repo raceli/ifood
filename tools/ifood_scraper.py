@@ -35,7 +35,7 @@ def scrape_ifood_menu(url: str):
 
     graph_config = {
         "llm": {
-            "model": "gemini/gemini-1.5-flash",
+            "model": "google_genai/gemini-1.5-flash",
             "api_key": gemini_api_key,
             "temperature": 0,
         },
