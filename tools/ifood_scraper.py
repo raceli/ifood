@@ -85,7 +85,7 @@ def scrape_ifood_menu(url: str):
 
 if __name__ == '__main__':
     # The iFood URL to scrape
-    ifood_url = "https://www.ifood.com.br/delivery/sao-paulo-sp/burger-king---av-eng-armando-de-arruda-jabaquara/9d59a670-25db-466e-b76d-00236311cb62"
+    ifood_url = "https://www.ifood.com.br/delivery/sao-paulo-sp/bologna-padaria-restaurante-e-rotisseria-consolacao/19cf4c5b-b50d-4472-9bd2-3ca177759d63"
     
     scraped_data = scrape_ifood_menu(ifood_url)
     
