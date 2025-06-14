@@ -38,11 +38,15 @@ def scrape_ifood_menu(url: str):
             "model": "google_genai/gemini-2.0-flash",
             "api_key": gemini_api_key,
             "temperature": 0,
-            "model_tokens": 1048576,
+            "max_output_tokens": 8192,
         },
         "verbose": True,
         "scraper": {
-            "headless": True, # Set to False if you want to see the browser actions
+            "headless": True,
+            "pre_scrape_actions": [
+                "page.wait_for_timeout(2000)",
+                "for i in range(10): page.keyboard.press('PageDown'); page.wait_for_timeout(500)"
+            ]
         }
     }
 
