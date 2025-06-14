@@ -38,9 +38,12 @@ def scrape_ifood_menu(url: str):
             "model": "google_genai/gemini-1.5-flash",
             "api_key": gemini_api_key,
             "temperature": 0,
+            "model_tokens": 8192,
         },
         "verbose": True,
-        "headless": True, # Set to False if you want to see the browser actions
+        "scraper": {
+            "headless": False, # Set to False if you want to see the browser actions
+        }
     }
 
     prompt = """
@@ -82,7 +85,7 @@ def scrape_ifood_menu(url: str):
 
 if __name__ == '__main__':
     # The iFood URL to scrape
-    ifood_url = "https.www.ifood.com.br/delivery/sao-paulo-sp/burger-king---av-eng-armando-de-arruda-jabaquara/9d59a670-25db-466e-b76d-00236311cb62"
+    ifood_url = "https://www.ifood.com.br/delivery/sao-paulo-sp/burger-king---av-eng-armando-de-arruda-jabaquara/9d59a670-25db-466e-b76d-00236311cb62"
     
     scraped_data = scrape_ifood_menu(ifood_url)
     
