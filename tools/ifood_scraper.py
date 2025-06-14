@@ -42,7 +42,7 @@ def scrape_ifood_menu(url: str):
         },
         "verbose": True,
         "scraper": {
-            "headless": False, # Set to False if you want to see the browser actions
+            "headless": True, # Set to False if you want to see the browser actions
         }
     }
 
