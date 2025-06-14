@@ -8,6 +8,7 @@ import os
 import json
 from scrapegraphai.graphs import SmartScraperGraph
 from scrapegraphai.utils import prettify_exec_info
+from scrapegraphai.llms import Gemini
 from dotenv import load_dotenv
 import logging
 
@@ -33,12 +34,14 @@ def scrape_ifood_menu(url: str):
         logger.error("GEMINI_API_KEY not found in environment variables. Please set it in a .env file.")
         raise ValueError("GEMINI_API_KEY not found in environment variables.")
 
+    llm_model = Gemini(
+        api_key=gemini_api_key,
+        model="gemini/gemini-1.5-flash",
+        temperature=0,
+    )
+
     graph_config = {
-        "llm": {
-            "model": "gemini/gemini-1.5-flash",
-            "api_key": gemini_api_key,
-            "temperature": 0,
-        },
+        "llm": llm_model,
         "verbose": True,
         "headless": True, # Set to False if you want to see the browser actions
     }
