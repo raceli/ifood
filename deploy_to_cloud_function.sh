@@ -76,7 +76,7 @@ gcloud functions deploy ${FUNCTION_NAME}-menu \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_menu_endpoint
+    --entry-point get_menu_endpoint_sync
 
 # 部署店铺信息端点函数
 echo "🚀 部署店铺信息端点函数..."
@@ -90,7 +90,7 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-info \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_shop_info_endpoint
+    --entry-point get_shop_info_endpoint_sync
 
 # 部署店铺全部信息端点函数
 echo "🚀 部署店铺全部信息端点函数..."
@@ -104,7 +104,7 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-all \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_shop_all_endpoint
+    --entry-point get_shop_all_endpoint_sync
 
 echo "✅ 部署完成！"
 

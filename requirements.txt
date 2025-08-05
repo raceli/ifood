@@ -4,4 +4,5 @@ fastapi
 uvicorn[standard]
 fastapi-security
 fastapi-cors
-fake-useragent 
+fake-useragent
+flask 
