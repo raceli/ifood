@@ -1,0 +1,29 @@
+# Google Cloud Function 部署配置
+# 用于部署 iFood 抓取 API 到 Cloud Function
+
+# 部署命令示例:
+# gcloud functions deploy ifood-scraper \
+#   --runtime python39 \
+#   --trigger-http \
+#   --allow-unauthenticated \
+#   --memory 2GB \
+#   --timeout 540s \
+#   --max-instances 10 \
+#   --set-env-vars-file cloud_function_deploy.yaml
+
+# 环境变量配置
+API_TOKEN: "4a27e60b5b0464a72ae12ba3731e077cc5951b40937999e78d06fb5325524800"
+USE_GCP_NATURAL_IP_ROTATION: "true"
+FUNCTION_REGION: "us-central1"
+
+# 可选：云代理配置（如果不想使用GCP自然IP轮换）
+# CLOUD_PROXY_USERNAME: "your_proxy_username"
+# CLOUD_PROXY_PASSWORD: "your_proxy_password" 
+# CLOUD_PROXY_HOST: "proxy.provider.com"
+# CLOUD_PROXY_PORT: "1080"
+
+# 代理轮换策略（当使用云代理时）
+# PROXY_ROTATION_STRATEGY: "random"
+
+# 日志级别
+LOG_LEVEL: "INFO" 

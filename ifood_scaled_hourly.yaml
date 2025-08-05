@@ -1,0 +1,22 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ifood-app-cron-scaler
+spec:
+  scaleTargetRef:
+    name: deployment-1
+  triggers:
+  - type: cron
+    metadata:
+      timezone: "Asia/Shanghai"
+      # 每小时的第 0 分钟缩到 0
+      start: "0 * * * *"
+      end: "1 * * * *"
+      desiredReplicas: "0"
+  - type: cron
+    metadata:
+      timezone: "Asia/Shanghai"
+      # 每小时的第 2 分钟扩到 3
+      start: "1 * * * *"
+      end: "59 * * * *"
+      desiredReplicas: "3"
