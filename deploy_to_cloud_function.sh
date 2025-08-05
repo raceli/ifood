@@ -67,7 +67,7 @@ fi
 # 部署主菜单端点函数
 echo "🚀 部署菜单端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-menu \
-    --runtime python39 \
+    --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
     --memory 2GB \
@@ -81,7 +81,7 @@ gcloud functions deploy ${FUNCTION_NAME}-menu \
 # 部署店铺信息端点函数
 echo "🚀 部署店铺信息端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-shop-info \
-    --runtime python39 \
+    --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
     --memory 2GB \
@@ -95,7 +95,7 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-info \
 # 部署店铺全部信息端点函数
 echo "🚀 部署店铺全部信息端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-shop-all \
-    --runtime python39 \
+    --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
     --memory 2GB \
