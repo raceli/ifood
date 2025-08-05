@@ -41,6 +41,10 @@ echo "🔧 启用必要的 API..."
 gcloud services enable cloudfunctions.googleapis.com
 gcloud services enable cloudbuild.googleapis.com
 
+# 安装 Playwright 浏览器
+echo "🔧 安装 Playwright 浏览器..."
+./install_playwright.sh
+
 # 创建环境变量文件（如果不存在）
 if [ ! -f "cloud_function_deploy.yaml" ]; then
     echo "📝 创建环境变量配置文件..."
@@ -60,9 +64,9 @@ if grep -q "your-super-secret-token-here" cloud_function_deploy.yaml; then
     exit 1
 fi
 
-# 部署 Cloud Function
-echo "🚀 部署 Cloud Function..."
-gcloud functions deploy $FUNCTION_NAME \
+# 部署主菜单端点函数
+echo "🚀 部署菜单端点函数..."
+gcloud functions deploy ${FUNCTION_NAME}-menu \
     --runtime python39 \
     --trigger-http \
     --allow-unauthenticated \
@@ -74,21 +78,70 @@ gcloud functions deploy $FUNCTION_NAME \
     --source . \
     --entry-point get_menu_endpoint
 
+# 部署店铺信息端点函数
+echo "🚀 部署店铺信息端点函数..."
+gcloud functions deploy ${FUNCTION_NAME}-shop-info \
+    --runtime python39 \
+    --trigger-http \
+    --allow-unauthenticated \
+    --memory 2GB \
+    --timeout 540s \
+    --max-instances 10 \
+    --region $REGION \
+    --env-vars-file cloud_function_deploy.yaml \
+    --source . \
+    --entry-point get_shop_info_endpoint
+
+# 部署店铺全部信息端点函数
+echo "🚀 部署店铺全部信息端点函数..."
+gcloud functions deploy ${FUNCTION_NAME}-shop-all \
+    --runtime python39 \
+    --trigger-http \
+    --allow-unauthenticated \
+    --memory 2GB \
+    --timeout 540s \
+    --max-instances 10 \
+    --region $REGION \
+    --env-vars-file cloud_function_deploy.yaml \
+    --source . \
+    --entry-point get_shop_all_endpoint
+
 echo "✅ 部署完成！"
 
 # 获取函数URL
-FUNCTION_URL=$(gcloud functions describe $FUNCTION_NAME --region=$REGION --format="value(httpsTrigger.url)")
+MENU_FUNCTION_URL=$(gcloud functions describe ${FUNCTION_NAME}-menu --region=$REGION --format="value(httpsTrigger.url)")
+SHOP_INFO_FUNCTION_URL=$(gcloud functions describe ${FUNCTION_NAME}-shop-info --region=$REGION --format="value(httpsTrigger.url)")
+SHOP_ALL_FUNCTION_URL=$(gcloud functions describe ${FUNCTION_NAME}-shop-all --region=$REGION --format="value(httpsTrigger.url)")
 
-echo "🌐 函数URL: $FUNCTION_URL"
+echo "🌐 菜单端点URL: $MENU_FUNCTION_URL"
+echo "🌐 店铺信息端点URL: $SHOP_INFO_FUNCTION_URL"
+echo "🌐 店铺全部信息端点URL: $SHOP_ALL_FUNCTION_URL"
 echo ""
 echo "📋 测试命令:"
-echo "curl -X POST \"$FUNCTION_URL\" \\"
+echo "# 测试菜单端点"
+echo "curl -X POST \"$MENU_FUNCTION_URL\" \\"
+echo "  -H \"Authorization: Bearer your-token\" \\"
+echo "  -H \"Content-Type: application/json\" \\"
+echo "  -d '{\"url\": \"https://www.ifood.com.br/restaurante/example\"}'"
+echo ""
+echo "# 测试店铺信息端点"
+echo "curl -X POST \"$SHOP_INFO_FUNCTION_URL\" \\"
+echo "  -H \"Authorization: Bearer your-token\" \\"
+echo "  -H \"Content-Type: application/json\" \\"
+echo "  -d '{\"url\": \"https://www.ifood.com.br/restaurante/example\"}'"
+echo ""
+echo "# 测试店铺全部信息端点"
+echo "curl -X POST \"$SHOP_ALL_FUNCTION_URL\" \\"
 echo "  -H \"Authorization: Bearer your-token\" \\"
 echo "  -H \"Content-Type: application/json\" \\"
 echo "  -d '{\"url\": \"https://www.ifood.com.br/restaurante/example\"}'"
 echo ""
 echo "📊 查看日志:"
-echo "gcloud functions logs read $FUNCTION_NAME --region=$REGION --limit=50"
+echo "gcloud functions logs read ${FUNCTION_NAME}-menu --region=$REGION --limit=50"
+echo "gcloud functions logs read ${FUNCTION_NAME}-shop-info --region=$REGION --limit=50"
+echo "gcloud functions logs read ${FUNCTION_NAME}-shop-all --region=$REGION --limit=50"
 echo ""
 echo "🔧 更新函数:"
-echo "gcloud functions deploy $FUNCTION_NAME --region=$REGION --source ." 
+echo "gcloud functions deploy ${FUNCTION_NAME}-menu --region=$REGION --source ."
+echo "gcloud functions deploy ${FUNCTION_NAME}-shop-info --region=$REGION --source ."
+echo "gcloud functions deploy ${FUNCTION_NAME}-shop-all --region=$REGION --source ." 
