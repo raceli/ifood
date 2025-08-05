@@ -109,6 +109,10 @@ async def scrape_ifood_page_requests(target_url: str) -> Dict[str, Any]:
         response = session.get(target_url, timeout=30)
         response.raise_for_status()
         
+        # 记录响应信息用于调试
+        logging.info(f"响应状态码: {response.status_code}")
+        logging.info(f"响应内容长度: {len(response.content)}")
+        
         soup = BeautifulSoup(response.content, 'html.parser')
         
         # 尝试提取店铺信息
@@ -118,31 +122,94 @@ async def scrape_ifood_page_requests(target_url: str) -> Dict[str, Any]:
         title_elem = soup.find('title')
         if title_elem:
             shop_info['name'] = title_elem.get_text().strip()
+            logging.info(f"找到店铺名称: {shop_info['name']}")
         
         # 提取店铺描述
         meta_desc = soup.find('meta', attrs={'name': 'description'})
         if meta_desc:
             shop_info['description'] = meta_desc.get('content', '')
+            logging.info(f"找到店铺描述: {shop_info['description'][:100]}...")
         
-        # 尝试从页面中提取更多信息
-        # 这里可以根据实际的 iFood 页面结构进行调整
+        # 尝试从各种元素中提取店铺信息
+        # 查找所有可能的文本内容
+        all_text = soup.get_text()
+        logging.info(f"页面总文本长度: {len(all_text)}")
         
-        # 模拟菜单数据（实际实现需要根据页面结构解析）
+        # 查找所有脚本标签，可能包含JSON数据
+        scripts = soup.find_all('script')
         menu_data = {
             'categories': [],
-            'items': []
+            'items': [],
+            'debug_info': {
+                'scripts_found': len(scripts),
+                'page_title': shop_info.get('name', ''),
+                'url': target_url
+            }
         }
         
-        # 查找可能的菜单容器
-        menu_containers = soup.find_all(['div', 'section'], class_=re.compile(r'menu|card|item', re.I))
+        # 尝试从script标签中提取JSON数据
+        for script in scripts:
+            if script.string:
+                script_content = script.string.strip()
+                # 查找可能的JSON数据
+                if 'menu' in script_content.lower() or 'product' in script_content.lower() or 'item' in script_content.lower():
+                    try:
+                        # 尝试提取JSON
+                        import json as json_lib
+                        # 查找JSON模式
+                        json_patterns = [
+                            r'window\.__INITIAL_STATE__\s*=\s*({.*?});',
+                            r'window\.__APP_STATE__\s*=\s*({.*?});',
+                            r'window\.initialData\s*=\s*({.*?});',
+                            r'"menu":\s*(\[.*?\])',
+                            r'"products":\s*(\[.*?\])',
+                        ]
+                        
+                        for pattern in json_patterns:
+                            matches = re.findall(pattern, script_content, re.DOTALL)
+                            if matches:
+                                try:
+                                    data = json_lib.loads(matches[0])
+                                    if isinstance(data, dict) and ('menu' in data or 'products' in data):
+                                        menu_data['items'].append({
+                                            'name': 'JSON数据提取',
+                                            'description': f'从脚本中提取到数据: {str(data)[:200]}...'
+                                        })
+                                        logging.info(f"从脚本中提取到JSON数据")
+                                        break
+                                except:
+                                    continue
+                    except Exception as e:
+                        logging.warning(f"解析脚本内容失败: {e}")
         
-        for container in menu_containers[:10]:  # 限制数量避免过多数据
-            item_text = container.get_text().strip()
-            if item_text and len(item_text) > 10:
-                menu_data['items'].append({
-                    'name': item_text[:100],  # 限制长度
-                    'description': item_text[:200] if len(item_text) > 100 else ''
-                })
+        # 查找可能的菜单容器（更广泛的搜索）
+        menu_selectors = [
+            'div[class*="menu"]',
+            'div[class*="product"]',
+            'div[class*="item"]',
+            'div[class*="card"]',
+            'section[class*="menu"]',
+            'ul[class*="list"]',
+            'div[data-testid*="menu"]',
+            'div[data-testid*="product"]'
+        ]
+        
+        for selector in menu_selectors:
+            elements = soup.select(selector)
+            if elements:
+                logging.info(f"找到 {len(elements)} 个元素使用选择器: {selector}")
+                for elem in elements[:5]:  # 限制数量
+                    text = elem.get_text().strip()
+                    if text and len(text) > 20:
+                        menu_data['items'].append({
+                            'name': f'元素 ({selector})',
+                            'description': text[:200]
+                        })
+        
+        # 如果没有找到具体数据，提供调试信息
+        if not menu_data['items']:
+            menu_data['debug_info']['sample_text'] = all_text[:500] if all_text else '无文本内容'
+            menu_data['debug_info']['html_snippet'] = str(soup)[:1000] if soup else '无HTML内容'
         
         return {
             'shop_info': shop_info,
