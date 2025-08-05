@@ -70,7 +70,7 @@ gcloud functions deploy $FUNCTION_NAME \
     --timeout 540s \
     --max-instances 10 \
     --region $REGION \
-    --set-env-vars-file cloud_function_deploy.yaml \
+    --env-vars-file cloud_function_deploy.yaml \
     --source . \
     --entry-point get_menu_endpoint
 
