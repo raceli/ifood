@@ -271,7 +271,30 @@ async def _scrape_ifood_page(
                 else:
                     logging.info("未提供代理，正在直接启动浏览器...")
             
-            browser = await p.chromium.launch(**launch_options)
+            # 在 Cloud Function 环境中，尝试使用系统 Chromium 或自动安装
+            if IS_CLOUD_FUNCTION:
+                try:
+                    # 首先尝试使用系统安装的 Chromium
+                    browser = await p.chromium.launch(**launch_options)
+                    logging.info("成功使用系统 Chromium 启动浏览器")
+                except Exception as e:
+                    logging.warning(f"系统 Chromium 启动失败: {e}")
+                    # 如果失败，尝试自动安装 Playwright 浏览器
+                    try:
+                        import subprocess
+                        import sys
+                        logging.info("正在安装 Playwright 浏览器...")
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                                     check=True, capture_output=True)
+                        logging.info("Playwright 浏览器安装完成，重新启动...")
+                        browser = await p.chromium.launch(**launch_options)
+                    except Exception as install_error:
+                        logging.error(f"Playwright 浏览器安装失败: {install_error}")
+                        # 最后尝试使用 firefox 作为备选
+                        logging.info("尝试使用 Firefox 作为备选浏览器...")
+                        browser = await p.firefox.launch(headless=True)
+            else:
+                browser = await p.chromium.launch(**launch_options)
             
             user_agent_str = get_random_user_agent()
             logging.info(f"使用 User-Agent: {user_agent_str}")
