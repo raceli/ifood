@@ -271,28 +271,34 @@ async def _scrape_ifood_page(
                 else:
                     logging.info("未提供代理，正在直接启动浏览器...")
             
-            # 在 Cloud Function 环境中，尝试使用系统 Chromium 或自动安装
+            # 在 Cloud Function 环境中，使用简化的启动方式
             if IS_CLOUD_FUNCTION:
                 try:
-                    # 首先尝试使用系统安装的 Chromium
-                    browser = await p.chromium.launch(**launch_options)
-                    logging.info("成功使用系统 Chromium 启动浏览器")
+                    # 使用最简化的启动选项，避免复杂的配置
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                            "--disable-dev-shm-usage",
+                            "--disable-gpu",
+                            "--single-process"
+                        ]
+                    )
+                    logging.info("成功启动 Chromium 浏览器")
                 except Exception as e:
-                    logging.warning(f"系统 Chromium 启动失败: {e}")
-                    # 如果失败，尝试自动安装 Playwright 浏览器
+                    logging.warning(f"Chromium 启动失败: {e}")
+                    # 尝试使用 Firefox 作为备选
                     try:
-                        import subprocess
-                        import sys
-                        logging.info("正在安装 Playwright 浏览器...")
-                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
-                                     check=True, capture_output=True)
-                        logging.info("Playwright 浏览器安装完成，重新启动...")
-                        browser = await p.chromium.launch(**launch_options)
-                    except Exception as install_error:
-                        logging.error(f"Playwright 浏览器安装失败: {install_error}")
-                        # 最后尝试使用 firefox 作为备选
                         logging.info("尝试使用 Firefox 作为备选浏览器...")
                         browser = await p.firefox.launch(headless=True)
+                        logging.info("成功启动 Firefox 浏览器")
+                    except Exception as firefox_error:
+                        logging.error(f"Firefox 启动也失败: {firefox_error}")
+                        # 最后尝试使用 webkit
+                        logging.info("尝试使用 WebKit 作为最后备选...")
+                        browser = await p.webkit.launch(headless=True)
+                        logging.info("成功启动 WebKit 浏览器")
             else:
                 browser = await p.chromium.launch(**launch_options)
             
