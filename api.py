@@ -155,29 +155,30 @@ def get_random_proxy_config() -> Optional[Dict[str, str]]:
     智能代理选择策略：
     1. 在Cloud Function环境中，优先使用GCP自然IP轮换
     2. 如果配置了云代理，使用云代理
-    3. 回退到本地代理文件
+    3. 在非Cloud Function环境中，回退到本地代理文件
     4. 最后直接连接
     
     返回Playwright格式的代理配置字典。
     """
     # 1. 在Cloud Function环境中，优先使用GCP自然IP轮换
     if IS_CLOUD_FUNCTION and USE_GCP_NATURAL_IP_ROTATION:
-        gcp_config = get_gcp_natural_ip_config()
-        if gcp_config is not None:  # 这里返回None表示使用自然IP轮换
-            return gcp_config
-        # 如果返回None，继续尝试其他代理
+        logging.info("在Cloud Function环境中，使用GCP自然IP轮换")
+        return None  # 返回None表示不使用代理，让GCP自动分配IP
     
     # 2. 尝试云代理
     cloud_proxy = get_cloud_proxy_config()
     if cloud_proxy:
+        logging.info("使用云代理配置")
         return cloud_proxy
     
-    # 3. 回退到本地代理文件
-    local_proxy = get_local_proxy_config()
-    if local_proxy:
-        return local_proxy
+    # 3. 在非Cloud Function环境中，回退到本地代理文件
+    if not IS_CLOUD_FUNCTION:
+        local_proxy = get_local_proxy_config()
+        if local_proxy:
+            logging.info("使用本地代理文件")
+            return local_proxy
     
-    # 4. 在Cloud Function中，即使没有代理配置也是可以的
+    # 4. 最终回退
     if IS_CLOUD_FUNCTION:
         logging.info("在Cloud Function环境中，将使用GCP分配的动态IP")
     else:
