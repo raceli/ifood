@@ -271,10 +271,10 @@ async def _scrape_ifood_page(
                 else:
                     logging.info("未提供代理，正在直接启动浏览器...")
             
-            # 在 Cloud Function 环境中，使用简化的启动方式
+            # 在 Cloud Function 环境中，动态安装并使用浏览器
             if IS_CLOUD_FUNCTION:
                 try:
-                    # 使用最简化的启动选项，避免复杂的配置
+                    # 首先尝试直接启动 Chromium
                     browser = await p.chromium.launch(
                         headless=True,
                         args=[
@@ -288,17 +288,45 @@ async def _scrape_ifood_page(
                     logging.info("成功启动 Chromium 浏览器")
                 except Exception as e:
                     logging.warning(f"Chromium 启动失败: {e}")
-                    # 尝试使用 Firefox 作为备选
+                    # 尝试动态安装浏览器
                     try:
-                        logging.info("尝试使用 Firefox 作为备选浏览器...")
-                        browser = await p.firefox.launch(headless=True)
-                        logging.info("成功启动 Firefox 浏览器")
-                    except Exception as firefox_error:
-                        logging.error(f"Firefox 启动也失败: {firefox_error}")
-                        # 最后尝试使用 webkit
-                        logging.info("尝试使用 WebKit 作为最后备选...")
-                        browser = await p.webkit.launch(headless=True)
-                        logging.info("成功启动 WebKit 浏览器")
+                        import subprocess
+                        import sys
+                        logging.info("正在动态安装 Playwright 浏览器...")
+                        # 安装 Chromium
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                                     check=True, capture_output=True, timeout=300)
+                        logging.info("Chromium 安装完成，重新启动...")
+                        browser = await p.chromium.launch(
+                            headless=True,
+                            args=[
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-dev-shm-usage",
+                                "--disable-gpu",
+                                "--single-process"
+                            ]
+                        )
+                        logging.info("成功启动 Chromium 浏览器")
+                    except Exception as install_error:
+                        logging.error(f"浏览器安装失败: {install_error}")
+                        # 最后尝试使用系统浏览器
+                        try:
+                            logging.info("尝试使用系统浏览器...")
+                            browser = await p.chromium.launch(
+                                headless=True,
+                                executable_path="/usr/bin/google-chrome",
+                                args=[
+                                    "--no-sandbox",
+                                    "--disable-setuid-sandbox",
+                                    "--disable-dev-shm-usage",
+                                    "--disable-gpu"
+                                ]
+                            )
+                            logging.info("成功启动系统浏览器")
+                        except Exception as system_error:
+                            logging.error(f"系统浏览器启动失败: {system_error}")
+                            raise Exception("无法启动任何浏览器")
             else:
                 browser = await p.chromium.launch(**launch_options)
             
