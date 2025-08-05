@@ -84,39 +84,77 @@ def clean_url(url: str) -> str:
         return cleaned_url
     return url
 
-def get_session():
-    """创建一个配置好的 requests session，模拟真实浏览器"""
+def get_session_with_proxy():
+    """创建一个配置好的 requests session，模拟真实浏览器，支持代理"""
     session = requests.Session()
+    
+    # 使用更多样化的 User-Agent
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+    ]
     
     # 更真实的浏览器头部
     headers = {
-        'User-Agent': get_random_user_agent(),
+        'User-Agent': random.choice(user_agents),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',  # 使用巴西葡萄牙语
+        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Site': 'cross-site',
         'Sec-Fetch-User': '?1',
         'Cache-Control': 'max-age=0',
         'DNT': '1',
         'Sec-CH-UA': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
         'Sec-CH-UA-Mobile': '?0',
         'Sec-CH-UA-Platform': '"Windows"',
+        'sec-ch-ua-platform-version': '"15.0.0"',
     }
     
     session.headers.update(headers)
     
-    # 添加一些常见的 cookies
+    # 添加更真实的 cookies
     session.cookies.update({
         'session_language': 'pt-BR',
         'country': 'BR',
-        'timezone': 'America/Sao_Paulo'
+        'timezone': 'America/Sao_Paulo',
+        '_gcl_au': '1.1.1234567890.1234567890',
+        '_ga': 'GA1.2.1234567890.1234567890',
+        '_gid': 'GA1.2.1234567890.1234567890',
+        'PHPSESSID': 'abcd1234567890abcd1234567890abcd'
     })
     
+    # 在 Cloud Function 环境中，尝试使用不同的请求方式
+    if IS_CLOUD_FUNCTION:
+        # 设置更长的超时
+        session.timeout = 45
+        
+        # 添加重试机制
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[403, 429, 500, 502, 503, 504],
+            method_whitelist=["HEAD", "GET", "OPTIONS"],
+            backoff_factor=2
+        )
+        
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+    
     return session
+
+def get_session():
+    """向后兼容的 session 创建函数"""
+    return get_session_with_proxy()
 
 async def scrape_ifood_page_requests(target_url: str) -> Dict[str, Any]:
     """使用 requests 和 beautifulsoup4 抓取 iFood 页面"""
@@ -141,26 +179,79 @@ async def scrape_ifood_page_requests(target_url: str) -> Dict[str, Any]:
             'Referer': 'https://www.ifood.com.br',
         })
         
-        # 分步请求，添加更多延迟
-        max_retries = 3
+        # 智能重试机制
+        max_retries = 5
+        response = None
+        
         for attempt in range(max_retries):
             try:
                 logging.info(f"尝试第 {attempt + 1} 次请求...")
-                response = session.get(target_url, timeout=30)
+                
+                # 每次重试都创建新的session
+                if attempt > 0:
+                    session = get_session()
+                    time.sleep(random.uniform(8, 15))  # 更长的延迟
+                
+                # 尝试不同的策略
+                if attempt == 0:
+                    # 第一次：直接请求
+                    response = session.get(target_url, timeout=30)
+                elif attempt == 1:
+                    # 第二次：先访问根域名
+                    session.get('https://www.ifood.com.br', timeout=15)
+                    time.sleep(2)
+                    response = session.get(target_url, timeout=30)
+                elif attempt == 2:
+                    # 第三次：模拟搜索访问
+                    search_url = 'https://www.ifood.com.br/busca'
+                    session.get(search_url, timeout=15)
+                    time.sleep(3)
+                    response = session.get(target_url, timeout=30)
+                elif attempt == 3:
+                    # 第四次：使用移动端 User-Agent
+                    session.headers['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1'
+                    response = session.get(target_url, timeout=30)
+                else:
+                    # 最后一次：尝试无头请求
+                    minimal_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                    session.headers.clear()
+                    session.headers.update(minimal_headers)
+                    response = session.get(target_url, timeout=30)
                 
                 if response.status_code == 403:
-                    logging.warning(f"收到 403 错误，尝试不同的 User-Agent...")
-                    session.headers['User-Agent'] = get_random_user_agent()
-                    time.sleep(random.uniform(5, 10))  # 更长的延迟
-                    continue
+                    logging.warning(f"尝试 {attempt + 1} 收到 403 错误")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        # 最后一次尝试失败，返回特殊错误信息
+                        return {
+                            'error': 'AntiBot',
+                            'message': f'网站检测到自动化访问。HTTP 403 错误。已尝试 {max_retries} 次不同策略。',
+                            'status': 403,
+                            'url': target_url,
+                            'suggestions': [
+                                '该网站有强反爬虫机制',
+                                '建议使用真实浏览器访问',
+                                '或者考虑使用代理服务',
+                                '也可能需要登录后才能访问'
+                            ]
+                        }
                 
                 response.raise_for_status()
+                logging.info(f"第 {attempt + 1} 次尝试成功")
                 break
                 
             except requests.exceptions.HTTPError as e:
-                if response.status_code == 403 and attempt < max_retries - 1:
-                    logging.warning(f"403 错误，等待后重试...")
-                    time.sleep(random.uniform(10, 20))
+                if attempt < max_retries - 1:
+                    logging.warning(f"HTTP 错误 {e}，等待后重试...")
+                    continue
+                else:
+                    raise e
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logging.warning(f"请求异常 {e}，等待后重试...")
                     continue
                 else:
                     raise e

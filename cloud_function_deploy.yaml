@@ -1,15 +1,21 @@
 # Google Cloud Function 部署配置
 # 用于部署 iFood 抓取 API 到 Cloud Function
+# 配置参考 Browserless 在 GCP 上的最佳实践
 
-# 部署命令示例:
+# 部署命令示例 (优化版本):
 # gcloud functions deploy ifood-scraper \
-#   --runtime python39 \
+#   --gen2 \
+#   --runtime python311 \
 #   --trigger-http \
 #   --allow-unauthenticated \
-#   --memory 2GB \
-#   --timeout 540s \
+#   --memory 4GB \
+#   --timeout 600s \
 #   --max-instances 10 \
-#   --set-env-vars-file cloud_function_deploy.yaml
+#   --min-instances 0 \
+#   --concurrency 1 \
+#   --cpu 2 \
+#   --set-env-vars-file cloud_function_deploy.yaml \
+#   --region us-central1
 
 # 环境变量配置
 API_TOKEN: "4a27e60b5b0464a72ae12ba3731e077cc5951b40937999e78d06fb5325524800"

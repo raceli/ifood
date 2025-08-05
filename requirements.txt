@@ -1,3 +1,4 @@
+playwright
 beautifulsoup4
 fastapi
 uvicorn[standard]
@@ -5,4 +6,4 @@ fastapi-security
 fastapi-cors
 fake-useragent
 flask
-requests 
+psutil 

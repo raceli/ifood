@@ -64,47 +64,73 @@ if grep -q "your-super-secret-token-here" cloud_function_deploy.yaml; then
     exit 1
 fi
 
-# 部署主菜单端点函数
+# 构建 Docker 镜像
+echo "🔧 构建 Docker 镜像..."
+docker build -t gcr.io/$PROJECT_ID/${FUNCTION_NAME} .
+
+# 推送镜像到 Google Container Registry
+echo "📤 推送镜像到 GCR..."
+docker push gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+
+# 部署主菜单端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署菜单端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-menu \
+    --gen2 \
     --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
-    --memory 2GB \
-    --timeout 540s \
+    --memory 4GB \
+    --timeout 600s \
     --max-instances 10 \
+    --min-instances 0 \
+    --concurrency 1 \
+    --cpu 2 \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_menu_endpoint_sync
+    --entry-point get_menu_endpoint_sync \
+    --docker-registry artifact-registry \
+    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
 
-# 部署店铺信息端点函数
+# 部署店铺信息端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署店铺信息端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-shop-info \
+    --gen2 \
     --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
-    --memory 2GB \
-    --timeout 540s \
+    --memory 4GB \
+    --timeout 600s \
     --max-instances 10 \
+    --min-instances 0 \
+    --concurrency 1 \
+    --cpu 2 \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_shop_info_endpoint_sync
+    --entry-point get_shop_info_endpoint_sync \
+    --docker-registry artifact-registry \
+    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
 
-# 部署店铺全部信息端点函数
+# 部署店铺全部信息端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署店铺全部信息端点函数..."
 gcloud functions deploy ${FUNCTION_NAME}-shop-all \
+    --gen2 \
     --runtime python311 \
     --trigger-http \
     --allow-unauthenticated \
-    --memory 2GB \
-    --timeout 540s \
+    --memory 4GB \
+    --timeout 600s \
     --max-instances 10 \
+    --min-instances 0 \
+    --concurrency 1 \
+    --cpu 2 \
     --region $REGION \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
-    --entry-point get_shop_all_endpoint_sync
+    --entry-point get_shop_all_endpoint_sync \
+    --docker-registry artifact-registry \
+    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
 
 echo "✅ 部署完成！"
 

@@ -4,7 +4,7 @@
 import asyncio
 import json
 from flask import Request, Response
-from api_requests import get_menu_endpoint_requests, get_shop_info_endpoint_requests, get_shop_all_endpoint_requests, StoreRequest
+from api import get_catalog_from_url, get_shop_info_from_url, get_shop_all_from_url, get_random_proxy_config, clean_url, StoreRequest
 
 def run_async_function(async_func, *args, **kwargs):
     """运行异步函数的辅助函数"""
@@ -17,7 +17,7 @@ def run_async_function(async_func, *args, **kwargs):
     return loop.run_until_complete(async_func(*args, **kwargs))
 
 def get_menu_endpoint_sync(request: Request):
-    """同步版本的菜单端点（requests 版本）"""
+    """同步版本的菜单端点（playwright 版本）"""
     if request.method != 'POST':
         return Response('Method not allowed', status=405)
     
@@ -26,8 +26,11 @@ def get_menu_endpoint_sync(request: Request):
         if not request_data or 'url' not in request_data:
             return Response('Missing URL parameter', status=400)
         
-        store_request = StoreRequest(url=request_data['url'])
-        result = run_async_function(get_menu_endpoint_requests, store_request, None)
+        # 获取代理配置并清理URL
+        proxy_config = get_random_proxy_config()
+        cleaned_url = clean_url(request_data['url'])
+        
+        result = run_async_function(get_catalog_from_url, cleaned_url, proxy_config)
         
         return Response(
             json.dumps(result, ensure_ascii=False, indent=2),
@@ -42,7 +45,7 @@ def get_menu_endpoint_sync(request: Request):
         )
 
 def get_shop_info_endpoint_sync(request: Request):
-    """同步版本的店铺信息端点（requests 版本）"""
+    """同步版本的店铺信息端点（playwright 版本）"""
     if request.method != 'POST':
         return Response('Method not allowed', status=405)
     
@@ -51,8 +54,11 @@ def get_shop_info_endpoint_sync(request: Request):
         if not request_data or 'url' not in request_data:
             return Response('Missing URL parameter', status=400)
         
-        store_request = StoreRequest(url=request_data['url'])
-        result = run_async_function(get_shop_info_endpoint_requests, store_request, None)
+        # 获取代理配置并清理URL
+        proxy_config = get_random_proxy_config()
+        cleaned_url = clean_url(request_data['url'])
+        
+        result = run_async_function(get_shop_info_from_url, cleaned_url, proxy_config)
         
         return Response(
             json.dumps(result, ensure_ascii=False, indent=2),
@@ -67,7 +73,7 @@ def get_shop_info_endpoint_sync(request: Request):
         )
 
 def get_shop_all_endpoint_sync(request: Request):
-    """同步版本的店铺全部信息端点（requests 版本）"""
+    """同步版本的店铺全部信息端点（playwright 版本）"""
     if request.method != 'POST':
         return Response('Method not allowed', status=405)
     
@@ -76,8 +82,11 @@ def get_shop_all_endpoint_sync(request: Request):
         if not request_data or 'url' not in request_data:
             return Response('Missing URL parameter', status=400)
         
-        store_request = StoreRequest(url=request_data['url'])
-        result = run_async_function(get_shop_all_endpoint_requests, store_request, None)
+        # 获取代理配置并清理URL
+        proxy_config = get_random_proxy_config()
+        cleaned_url = clean_url(request_data['url'])
+        
+        result = run_async_function(get_shop_all_from_url, cleaned_url, proxy_config)
         
         return Response(
             json.dumps(result, ensure_ascii=False, indent=2),

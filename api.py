@@ -204,6 +204,139 @@ def clean_url(url: str) -> str:
 
 # --- 核心抓取逻辑 (重构后) ---
 
+def _get_optimized_browser_args() -> List[str]:
+    """
+    根据 Browserless 最佳实践，返回优化的浏览器启动参数。
+    针对 Cloud Function 环境进行了专门优化。
+    """
+    base_args = [
+        "--no-sandbox",
+        "--disable-setuid-sandbox", 
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-features=TranslateUI,VizDisplayCompositor",
+        "--disable-ipc-flooding-protection",
+        "--disable-extensions",
+        "--disable-plugins",
+        "--disable-default-apps",
+        "--disable-component-extensions-with-background-pages",
+        "--no-first-run",
+        "--no-zygote",
+        "--memory-pressure-off",
+        "--max_old_space_size=4096"
+    ]
+    
+    # Cloud Function 特定优化
+    if IS_CLOUD_FUNCTION:
+        base_args.extend([
+            "--single-process",  # 减少内存占用
+            "--disable-images",  # 禁用图片加载
+            "--disable-web-security",  # 绕过某些安全限制
+            "--disable-site-isolation-trials",
+            "--disable-speech-api",
+            "--disable-background-networking",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--safebrowsing-disable-auto-update",
+            "--disable-client-side-phishing-detection"
+        ])
+        
+        # 设置更小的窗口大小以节省内存
+        base_args.extend([
+            "--window-size=1280,720"
+        ])
+    
+    return base_args
+
+async def _launch_browser_with_fallback(playwright_instance, launch_options: Dict[str, Any]):
+    """
+    使用后备策略启动浏览器，参考 Browserless 建议的错误处理方式。
+    """
+    strategies = [
+        {
+            "name": "标准启动",
+            "options": launch_options
+        },
+        {
+            "name": "最小化启动", 
+            "options": {
+                **launch_options,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process"
+                ]
+            }
+        }
+    ]
+    
+    if IS_CLOUD_FUNCTION:
+        # Cloud Function 环境的特殊策略
+        strategies.append({
+            "name": "动态安装后启动",
+            "options": None  # 特殊标记
+        })
+        
+        strategies.append({
+            "name": "系统浏览器启动",
+            "options": {
+                **launch_options,
+                "executable_path": "/usr/bin/google-chrome",
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox", 
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu"
+                ]
+            }
+        })
+    
+    last_error = None
+    
+    for strategy in strategies:
+        try:
+            logging.info(f"尝试{strategy['name']}...")
+            
+            if strategy["name"] == "动态安装后启动":
+                # 动态安装浏览器
+                import subprocess
+                import sys
+                logging.info("正在动态安装 Playwright 浏览器...")
+                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                             check=True, capture_output=True, timeout=300)
+                logging.info("Chromium 安装完成，重新启动...")
+                
+                browser = await playwright_instance.chromium.launch(
+                    headless=True,
+                    timeout=30000,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage", 
+                        "--disable-gpu",
+                        "--single-process"
+                    ]
+                )
+            else:
+                browser = await playwright_instance.chromium.launch(**strategy["options"])
+            
+            logging.info(f"{strategy['name']}成功")
+            return browser
+            
+        except Exception as e:
+            last_error = e
+            logging.warning(f"{strategy['name']}失败: {str(e)}")
+            continue
+    
+    # 所有策略都失败了
+    raise Exception(f"无法启动浏览器，最后错误: {str(last_error)}")
+
 async def _process_api_response(key: str, response: Any) -> Dict[str, Any]:
     """
     处理单个从 Playwright 拦截到的响应，将其转换为JSON或错误字典。
@@ -228,40 +361,19 @@ async def _scrape_ifood_page(
 ) -> Dict[str, Any]:
     """
     一个通用的抓取函数，处理浏览器生命周期、拦截API请求并返回处理后的JSON数据。
-    针对Cloud Function环境进行了优化。
+    针对Cloud Function环境进行了优化，参考 Browserless 最佳实践。
     """
     async with async_playwright() as p:
         browser = None
         try:
-            # Cloud Function 优化的启动选项
+            # 根据 Browserless 建议，为 Cloud Function 优化启动配置
             launch_options = {
                 "headless": True,
-                "args": [
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-accelerated-2d-canvas",
-                    "--no-first-run",
-                    "--no-zygote",
-                    "--disable-gpu",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-features=TranslateUI",
-                    "--disable-ipc-flooding-protection",
-                ]
+                "timeout": 30000,  # 30秒启动超时
+                "args": _get_optimized_browser_args()
             }
             
-            # 在Cloud Function环境中，添加更多优化选项
-            if IS_CLOUD_FUNCTION:
-                launch_options["args"].extend([
-                    "--single-process",  # 单进程模式，节省内存
-                    "--disable-extensions",
-                    "--disable-plugins",
-                    "--disable-images",  # 禁用图片加载，提高速度
-                    "--disable-javascript",  # 禁用JS，只保留必要的
-                ])
-            
+            # 添加代理配置
             if proxy_config:
                 launch_options["proxy"] = proxy_config
                 logging.info("正在通过代理启动浏览器...")
@@ -271,80 +383,44 @@ async def _scrape_ifood_page(
                 else:
                     logging.info("未提供代理，正在直接启动浏览器...")
             
-            # 在 Cloud Function 环境中，动态安装并使用浏览器
-            if IS_CLOUD_FUNCTION:
-                try:
-                    # 首先尝试直接启动 Chromium
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=[
-                            "--no-sandbox",
-                            "--disable-setuid-sandbox",
-                            "--disable-dev-shm-usage",
-                            "--disable-gpu",
-                            "--single-process"
-                        ]
-                    )
-                    logging.info("成功启动 Chromium 浏览器")
-                except Exception as e:
-                    logging.warning(f"Chromium 启动失败: {e}")
-                    # 尝试动态安装浏览器
-                    try:
-                        import subprocess
-                        import sys
-                        logging.info("正在动态安装 Playwright 浏览器...")
-                        # 安装 Chromium
-                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
-                                     check=True, capture_output=True, timeout=300)
-                        logging.info("Chromium 安装完成，重新启动...")
-                        browser = await p.chromium.launch(
-                            headless=True,
-                            args=[
-                                "--no-sandbox",
-                                "--disable-setuid-sandbox",
-                                "--disable-dev-shm-usage",
-                                "--disable-gpu",
-                                "--single-process"
-                            ]
-                        )
-                        logging.info("成功启动 Chromium 浏览器")
-                    except Exception as install_error:
-                        logging.error(f"浏览器安装失败: {install_error}")
-                        # 最后尝试使用系统浏览器
-                        try:
-                            logging.info("尝试使用系统浏览器...")
-                            browser = await p.chromium.launch(
-                                headless=True,
-                                executable_path="/usr/bin/google-chrome",
-                                args=[
-                                    "--no-sandbox",
-                                    "--disable-setuid-sandbox",
-                                    "--disable-dev-shm-usage",
-                                    "--disable-gpu"
-                                ]
-                            )
-                            logging.info("成功启动系统浏览器")
-                        except Exception as system_error:
-                            logging.error(f"系统浏览器启动失败: {system_error}")
-                            raise Exception("无法启动任何浏览器")
-            else:
-                browser = await p.chromium.launch(**launch_options)
+            # 统一的浏览器启动逻辑
+            browser = await _launch_browser_with_fallback(p, launch_options)
             
+            # 创建页面并设置优化配置
             user_agent_str = get_random_user_agent()
             logging.info(f"使用 User-Agent: {user_agent_str}")
-            page = await browser.new_page(user_agent=user_agent_str)
+            
+            # 根据 Browserless 建议优化页面设置
+            page = await browser.new_page(
+                user_agent=user_agent_str,
+                viewport={"width": 1280, "height": 720}  # 设置较小的视口以节省内存
+            )
+            
+            # 设置页面超时和错误处理
+            page.set_default_navigation_timeout(45000)  # 45秒导航超时
+            page.set_default_timeout(30000)  # 30秒默认超时
+            
+            # 可选：如果不需要图片，可以阻止图片请求以提高性能
+            if IS_CLOUD_FUNCTION:
+                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+                await page.route("**/*.{css}", lambda route: route.abort())  # 可选：阻止CSS以提高速度
             
             logging.info(f"正在导航到: {target_url}")
 
+            # 设置更合理的超时时间
             response_awaitables = [
                 page.wait_for_event(
                     "response",
                     lambda res, p=pattern: p.search(res.url),
-                    timeout=25000
+                    timeout=35000  # 增加超时时间
                 )
                 for pattern in api_patterns.values()
             ]
-            navigation_awaitable = page.goto(target_url, wait_until='domcontentloaded', timeout=15000)
+            navigation_awaitable = page.goto(
+                target_url, 
+                wait_until='domcontentloaded', 
+                timeout=30000  # 增加导航超时时间
+            )
             
             all_results = await asyncio.gather(
                 *response_awaitables, navigation_awaitable, return_exceptions=True
@@ -376,17 +452,65 @@ async def _scrape_ifood_page(
 
         except Exception as e:
             error_message = str(e)
+            error_type = type(e).__name__
+            
+            # 更详细的错误分类和处理
             if isinstance(e, TimeoutError):
                 error_message = "操作超时。可能原因：页面加载过慢、未触发API请求、或被CAPTCHA阻挡。"
-            logging.error(f"抓取过程中发生错误: {error_message}")
+                error_type = "TimeoutError"
+            elif "net::ERR_" in error_message:
+                error_message = "网络连接错误。可能是代理问题或网站不可达。"
+                error_type = "NetworkError"
+            elif "browserless" in error_message.lower():
+                error_message = "浏览器服务错误。建议检查浏览器配置或内存限制。"
+                error_type = "BrowserError"
+            elif "memory" in error_message.lower() or "out of memory" in error_message.lower():
+                error_message = "内存不足错误。建议优化浏览器参数或增加Cloud Function内存。"
+                error_type = "MemoryError"
+                
+            logging.error(f"抓取过程中发生错误 [{error_type}]: {error_message}")
+            
+            # 记录更多调试信息用于 Cloud Function 环境
+            if IS_CLOUD_FUNCTION:
+                import psutil
+                try:
+                    memory_usage = psutil.virtual_memory()
+                    logging.info(f"当前内存使用: {memory_usage.percent}% ({memory_usage.used / 1024 / 1024:.1f}MB / {memory_usage.total / 1024 / 1024:.1f}MB)")
+                except ImportError:
+                    logging.info("psutil 不可用，无法获取内存使用信息")
+            
             return {
-                key: {"error": type(e).__name__, "message": error_message, "status": 500}
+                key: {
+                    "error": error_type, 
+                    "message": error_message, 
+                    "status": 500,
+                    "is_cloud_function": IS_CLOUD_FUNCTION
+                }
                 for key in api_patterns.keys()
             }
         finally:
-            if browser and browser.is_connected():
-                await browser.close()
-                logging.info("浏览器已关闭。")
+            # 更好的资源清理，参考 Browserless 建议
+            if browser:
+                try:
+                    if browser.is_connected():
+                        # 先关闭所有页面
+                        contexts = browser.contexts
+                        for context in contexts:
+                            await context.close()
+                        
+                        # 然后关闭浏览器
+                        await browser.close()
+                        logging.info("浏览器和所有上下文已安全关闭。")
+                    else:
+                        logging.info("浏览器已断开连接。")
+                except Exception as cleanup_error:
+                    logging.warning(f"清理浏览器资源时出错: {cleanup_error}")
+                    
+            # 在 Cloud Function 环境中强制垃圾回收
+            if IS_CLOUD_FUNCTION:
+                import gc
+                gc.collect()
+                logging.info("已执行垃圾回收。")
 
 async def get_catalog_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
