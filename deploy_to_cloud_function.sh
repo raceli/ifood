@@ -40,6 +40,15 @@ gcloud config set project $PROJECT_ID
 echo "🔧 启用必要的 API..."
 gcloud services enable cloudfunctions.googleapis.com
 gcloud services enable cloudbuild.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+
+# 创建 Artifact Registry 仓库 (如果不存在)
+echo "📦 创建 Artifact Registry 仓库..."
+gcloud artifacts repositories create ${FUNCTION_NAME} \
+    --repository-format=docker \
+    --location=$REGION \
+    --description="Docker repository for ${FUNCTION_NAME} Cloud Function" \
+    --quiet || echo "仓库已存在，跳过创建"
 
 # 安装 Playwright 浏览器
 echo "🔧 安装 Playwright 浏览器..."
@@ -64,13 +73,13 @@ if grep -q "your-super-secret-token-here" cloud_function_deploy.yaml; then
     exit 1
 fi
 
-# 构建 Docker 镜像
+# 构建 Docker 镜像 (使用 Artifact Registry 格式)
 echo "🔧 构建 Docker 镜像..."
-docker build -t gcr.io/$PROJECT_ID/${FUNCTION_NAME} .
+docker build -t ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}/image .
 
-# 推送镜像到 Google Container Registry
-echo "📤 推送镜像到 GCR..."
-docker push gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+# 推送镜像到 Artifact Registry
+echo "📤 推送镜像到 Artifact Registry..."
+docker push ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}/image
 
 # 部署主菜单端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署菜单端点函数..."
@@ -90,7 +99,7 @@ gcloud functions deploy ${FUNCTION_NAME}-menu \
     --source . \
     --entry-point get_menu_endpoint_sync \
     --docker-registry artifact-registry \
-    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+    --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 # 部署店铺信息端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署店铺信息端点函数..."
@@ -110,7 +119,7 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-info \
     --source . \
     --entry-point get_shop_info_endpoint_sync \
     --docker-registry artifact-registry \
-    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+    --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 # 部署店铺全部信息端点函数 (优化配置，参考 Browserless 最佳实践)
 echo "🚀 部署店铺全部信息端点函数..."
@@ -130,7 +139,7 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-all \
     --source . \
     --entry-point get_shop_all_endpoint_sync \
     --docker-registry artifact-registry \
-    --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+    --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 echo "✅ 部署完成！"
 

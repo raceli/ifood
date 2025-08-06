@@ -102,3 +102,44 @@ gcloud functions deploy ifood-scraper \
 - 这些优化主要针对 Google Cloud Functions 环境
 - 某些配置可能需要根据具体使用场景调整
 - 建议先在测试环境中验证配置的有效性
+
+## 部署修复说明
+
+### 问题
+部署时出现错误：`--docker-repository: Bad value [gcr.io/...]`，因为 Google Cloud 已经从 Container Registry 迁移到 Artifact Registry。
+
+### 解决方案
+已更新 `deploy_to_cloud_function.sh` 脚本：
+
+1. **更新 Docker 镜像标签格式**：
+   ```bash
+   # 旧格式
+   docker build -t gcr.io/$PROJECT_ID/${FUNCTION_NAME} .
+   
+   # 新格式  
+   docker build -t ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}/image .
+   ```
+
+2. **更新 Docker 仓库配置**：
+   ```bash
+   # 旧格式
+   --docker-repository gcr.io/$PROJECT_ID/${FUNCTION_NAME}
+   
+   # 新格式
+   --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
+   ```
+
+3. **添加 Artifact Registry 支持**：
+   - 启用 `artifactregistry.googleapis.com` API
+   - 自动创建 Docker 仓库（如果不存在）
+
+### 部署命令
+现在可以重新运行部署脚本：
+```bash
+./deploy_to_cloud_function.sh [项目ID] [函数名称]
+```
+
+### 注意事项
+- 确保项目有足够的权限创建 Artifact Registry 仓库
+- 首次部署可能需要几分钟来创建仓库
+- 如果仓库已存在，脚本会跳过创建步骤
