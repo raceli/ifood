@@ -147,3 +147,37 @@ gcloud functions deploy ifood-scraper \
 - 确保项目有足够的权限创建 Artifact Registry 仓库
 - 首次部署可能需要几分钟来创建仓库
 - 如果仓库已存在，脚本会跳过创建步骤
+
+## Cloud Function 浏览器路径修复
+
+### 问题
+Cloud Function 运行时出现错误：
+```
+Executable doesn't exist at /www-data-home/.cache/ms-playwright/chromium_headless_shell-1181/chrome-linux/headless_shell
+```
+
+### 解决方案
+已更新 Dockerfile 和 api.py：
+
+1. **Dockerfile 优化**：
+   - 添加完整的 Playwright 系统依赖
+   - 使用 `--with-deps` 参数安装 Chromium
+   - 设置 `PLAYWRIGHT_BROWSERS_PATH` 环境变量
+   - 验证浏览器安装
+
+2. **api.py 启动策略优化**：
+   - 添加 "Cloud Function 浏览器启动" 策略
+   - 使用通配符路径查找实际浏览器位置
+   - 改进动态安装逻辑
+   - 增强错误处理和日志记录
+
+### 修复内容
+- **Dockerfile**: 添加 30+ 个系统依赖包
+- **api.py**: 新增浏览器路径查找逻辑
+- **环境变量**: 设置正确的浏览器路径
+
+### 重新部署
+```bash
+# 重新构建和部署
+./deploy_to_cloud_function.sh
+```

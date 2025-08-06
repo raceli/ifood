@@ -1,38 +1,73 @@
-# 1. 使用官方的Python 3.11 slim版本作为基础镜像
+# 使用 Python 3.11 作为基础镜像
 FROM python:3.11-slim
 
-# 设置一个环境变量，避免在安装时出现不必要的交互提示
-ENV DEBIAN_FRONTEND=noninteractive
-
-# 2. 安装Playwright运行所需的系统级依赖
-#    - 更新apt包列表
-#    - 安装wget和xvfb等核心工具
-#    - 清理apt缓存以减小镜像体积
-RUN apt-get update && \
-    apt-get install -y wget xvfb && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# 3. 在容器内创建并设置工作目录
+# 设置工作目录
 WORKDIR /app
 
-# 4. 复制依赖和代理配置文件到容器中
-COPY requirements.txt proxies.txt /app/
+# 安装系统依赖 (Playwright 所需)
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    ca-certificates \
+    procps \
+    libxss1 \
+    libnss3 \
+    libnspr4 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    libdrm2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libatspi2.0-0 \
+    libgtk-3-0 \
+    libgdk-pixbuf2.0-0 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    && rm -rf /var/lib/apt/lists/*
 
-# 5. 安装Python依赖
-#    --no-cache-dir 选项可以减小镜像层的大小
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6. 安装Playwright的浏览器核心 (只安装chromium以减小体积)
-#    --with-deps 会一并安装所需的操作系统依赖
+# 安装 Playwright 浏览器 (只安装 Chromium 以节省空间)
 RUN playwright install --with-deps chromium
 
-# 7. 复制API应用代码到容器中
-COPY api.py /app/
+# 验证浏览器安装
+RUN playwright --version && \
+    ls -la /ms-playwright/
 
-# 8. 暴露API服务将要监听的端口
-EXPOSE 8000
+# 复制应用代码
+COPY . .
 
-# 9. 设置容器启动时执行的命令
-#    --host 0.0.0.0 让服务可以从容器外部访问
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"] 
+# 设置环境变量
+ENV PYTHONPATH=/app
+ENV FUNCTION_TARGET=get_menu_endpoint_sync
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# 暴露端口
+EXPOSE 8080
+
+# 启动命令
+CMD ["python", "main.py"] 

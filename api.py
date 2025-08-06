@@ -279,6 +279,21 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
     if IS_CLOUD_FUNCTION:
         # Cloud Function 环境的特殊策略
         strategies.append({
+            "name": "Cloud Function 浏览器启动",
+            "options": {
+                **launch_options,
+                "executable_path": "/ms-playwright/chromium-*/chrome-linux/chrome",
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage", 
+                    "--disable-gpu",
+                    "--single-process"
+                ]
+            }
+        })
+        
+        strategies.append({
             "name": "动态安装后启动",
             "options": None  # 特殊标记
         })
@@ -307,8 +322,13 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                 # 动态安装浏览器
                 import subprocess
                 import sys
+                import os
                 logging.info("正在动态安装 Playwright 浏览器...")
-                subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+                
+                # 设置浏览器路径环境变量
+                os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/ms-playwright'
+                
+                subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], 
                              check=True, capture_output=True, timeout=300)
                 logging.info("Chromium 安装完成，重新启动...")
                 
@@ -324,7 +344,26 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                     ]
                 )
             else:
-                browser = await playwright_instance.chromium.launch(**strategy["options"])
+                if strategy["name"] == "Cloud Function 浏览器启动":
+                    # 处理通配符路径
+                    import glob
+                    import os
+                    
+                    # 查找实际的浏览器路径
+                    browser_pattern = "/ms-playwright/chromium-*/chrome-linux/chrome"
+                    browser_paths = glob.glob(browser_pattern)
+                    
+                    if browser_paths:
+                        actual_browser_path = browser_paths[0]
+                        logging.info(f"找到浏览器路径: {actual_browser_path}")
+                        
+                        browser_options = strategy["options"].copy()
+                        browser_options["executable_path"] = actual_browser_path
+                        browser = await playwright_instance.chromium.launch(**browser_options)
+                    else:
+                        raise Exception(f"未找到浏览器，搜索模式: {browser_pattern}")
+                else:
+                    browser = await playwright_instance.chromium.launch(**strategy["options"])
             
             logging.info(f"{strategy['name']}成功")
             return browser
