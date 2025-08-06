@@ -282,7 +282,7 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
             "name": "Cloud Function 浏览器启动",
             "options": {
                 **launch_options,
-                "executable_path": "/ms-playwright/chromium-*/chrome-linux/chrome",
+                "executable_path": "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
                 "args": [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
@@ -326,7 +326,7 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                 logging.info("正在动态安装 Playwright 浏览器...")
                 
                 # 设置浏览器路径环境变量
-                os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/ms-playwright'
+                os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/root/.cache/ms-playwright'
                 
                 subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], 
                              check=True, capture_output=True, timeout=300)
@@ -350,7 +350,7 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                     import os
                     
                     # 查找实际的浏览器路径
-                    browser_pattern = "/ms-playwright/chromium-*/chrome-linux/chrome"
+                    browser_pattern = "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
                     browser_paths = glob.glob(browser_pattern)
                     
                     if browser_paths:

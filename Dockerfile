@@ -56,7 +56,8 @@ RUN playwright install --with-deps chromium
 
 # 验证浏览器安装
 RUN playwright --version && \
-    ls -la /ms-playwright/
+    find / -name "chromium-*" -type d 2>/dev/null | head -5 && \
+    ls -la ~/.cache/ms-playwright/ 2>/dev/null || echo "浏览器安装在默认位置"
 
 # 复制应用代码
 COPY . .
@@ -64,7 +65,7 @@ COPY . .
 # 设置环境变量
 ENV PYTHONPATH=/app
 ENV FUNCTION_TARGET=get_menu_endpoint_sync
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # 暴露端口
 EXPOSE 8080
