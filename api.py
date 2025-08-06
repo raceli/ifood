@@ -328,6 +328,43 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
             }
         })
         
+        # 尝试使用系统 Chromium (如果存在)
+        strategies.append({
+            "name": "系统 Chromium 启动",
+            "options": {
+                **launch_options,
+                "executable_path": "/usr/bin/chromium-browser",
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox", 
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--headless"
+                ]
+            }
+        })
+        
+        # 尝试使用系统 Chrome (备用路径)
+        strategies.append({
+            "name": "系统 Chrome 备用启动",
+            "options": {
+                **launch_options,
+                "executable_path": "/usr/bin/chromium",
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox", 
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--headless"
+                ]
+            }
+        })
+        
+        strategies.append({
+            "name": "系统浏览器查找启动",
+            "options": None  # 特殊标记
+        })
+        
         strategies.append({
             "name": "Cloud Function 环境安装",
             "options": None  # 特殊标记
@@ -344,7 +381,75 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
         try:
             logging.info(f"尝试{strategy['name']}...")
             
-            if strategy["name"] == "Cloud Function 环境安装":
+            if strategy["name"] == "系统浏览器查找启动":
+                # 动态查找系统中可用的浏览器
+                import subprocess
+                import os
+                logging.info("正在查找系统中可用的浏览器...")
+                
+                # 可能的浏览器路径
+                possible_browsers = [
+                    "/usr/bin/google-chrome-stable",
+                    "/usr/bin/chromium-browser", 
+                    "/usr/bin/chromium",
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chrome",
+                    "/snap/bin/chromium",
+                    "/opt/google/chrome/chrome"
+                ]
+                
+                found_browser = None
+                for browser_path in possible_browsers:
+                    if os.path.exists(browser_path):
+                        found_browser = browser_path
+                        logging.info(f"找到系统浏览器: {found_browser}")
+                        break
+                
+                if found_browser:
+                    browser = await playwright_instance.chromium.launch(
+                        headless=True,
+                        timeout=30000,
+                        executable_path=found_browser,
+                        args=[
+                            "--no-sandbox",
+                            "--disable-setuid-sandbox",
+                            "--disable-dev-shm-usage", 
+                            "--disable-gpu",
+                            "--single-process"
+                        ]
+                    )
+                else:
+                    # 尝试使用 which 命令查找
+                    try:
+                        result = subprocess.run(
+                            ["which", "chromium-browser"], 
+                            capture_output=True, 
+                            text=True,
+                            timeout=10
+                        )
+                        if result.returncode == 0:
+                            found_browser = result.stdout.strip()
+                            logging.info(f"通过 which 找到浏览器: {found_browser}")
+                            
+                            browser = await playwright_instance.chromium.launch(
+                                headless=True,
+                                timeout=30000,
+                                executable_path=found_browser,
+                                args=[
+                                    "--no-sandbox",
+                                    "--disable-setuid-sandbox",
+                                    "--disable-dev-shm-usage", 
+                                    "--disable-gpu",
+                                    "--single-process"
+                                ]
+                            )
+                        else:
+                            raise Exception("未找到任何系统浏览器")
+                    except Exception as e:
+                        logging.error(f"查找系统浏览器失败: {e}")
+                        raise Exception("未找到任何系统浏览器")
+                        
+            elif strategy["name"] == "Cloud Function 环境安装":
                 # Cloud Function 环境中的浏览器安装
                 import subprocess
                 import sys
@@ -461,9 +566,21 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                     import glob
                     import os
                     
-                    # 查找实际的浏览器路径
-                    browser_pattern = "/www-data-home/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
-                    browser_paths = glob.glob(browser_pattern)
+                    # 尝试多个可能的浏览器路径
+                    possible_paths = [
+                        "/www-data-home/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+                        "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+                        "/tmp/ms-playwright/chromium-*/chrome-linux/chrome",
+                        "/app/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+                        "/home/www-data/.cache/ms-playwright/chromium-*/chrome-linux/chrome"
+                    ]
+                    
+                    browser_paths = []
+                    for pattern in possible_paths:
+                        browser_paths = glob.glob(pattern)
+                        if browser_paths:
+                            logging.info(f"在路径 {pattern} 找到浏览器")
+                            break
                     
                     if browser_paths:
                         actual_browser_path = browser_paths[0]
@@ -473,7 +590,18 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                         browser_options["executable_path"] = actual_browser_path
                         browser = await playwright_instance.chromium.launch(**browser_options)
                     else:
-                        raise Exception(f"未找到浏览器，搜索模式: {browser_pattern}")
+                        # 如果找不到浏览器，尝试列出目录内容进行调试
+                        logging.error("未找到浏览器，尝试列出可能的目录:")
+                        for path in ["/www-data-home/.cache", "/root/.cache", "/tmp", "/app/.cache", "/home/www-data/.cache"]:
+                            try:
+                                if os.path.exists(path):
+                                    logging.error(f"目录 {path} 存在，内容: {os.listdir(path)}")
+                                else:
+                                    logging.error(f"目录 {path} 不存在")
+                            except Exception as e:
+                                logging.error(f"无法访问目录 {path}: {e}")
+                        
+                        raise Exception(f"未找到浏览器，已尝试所有可能的路径")
                 else:
                     browser = await playwright_instance.chromium.launch(**strategy["options"])
             

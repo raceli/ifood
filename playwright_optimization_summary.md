@@ -170,8 +170,9 @@ Executable doesn't exist at /www-data-home/.cache/ms-playwright/chromium_headles
 2. **api.py 启动策略优化**：
    - 添加 "Cloud Function 浏览器启动" 策略
    - 添加 "无头浏览器启动" 策略（更多优化参数）
+   - 添加 "系统浏览器查找启动" 策略（动态查找可用浏览器）
    - 改进动态安装逻辑（使用 `/tmp/ms-playwright` 目录）
-   - 尝试系统 Chrome (`/usr/bin/google-chrome-stable`)
+   - 尝试多种系统浏览器路径
    - 增强错误处理和日志记录
 
 ### 修复内容
@@ -181,6 +182,7 @@ Executable doesn't exist at /www-data-home/.cache/ms-playwright/chromium_headles
 - **路径验证**: 使用 `find` 命令查找实际安装位置
 - **错误处理**: 参考 GitHub issue 的最佳实践
 - **用户环境**: 适配 Cloud Function 的 `www-data` 用户环境
+- **浏览器查找**: 增强的路径搜索和系统浏览器检测
 
 ### 重新部署
 ```bash
