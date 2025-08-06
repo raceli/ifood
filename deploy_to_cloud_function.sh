@@ -98,7 +98,6 @@ gcloud functions deploy ${FUNCTION_NAME}-menu \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
     --entry-point get_menu_endpoint_sync \
-    --docker-registry artifact-registry \
     --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 # 部署店铺信息端点函数 (优化配置，参考 Browserless 最佳实践)
@@ -118,7 +117,6 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-info \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
     --entry-point get_shop_info_endpoint_sync \
-    --docker-registry artifact-registry \
     --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 # 部署店铺全部信息端点函数 (优化配置，参考 Browserless 最佳实践)
@@ -138,7 +136,6 @@ gcloud functions deploy ${FUNCTION_NAME}-shop-all \
     --env-vars-file cloud_function_deploy.yaml \
     --source . \
     --entry-point get_shop_all_endpoint_sync \
-    --docker-registry artifact-registry \
     --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
 
 echo "✅ 部署完成！"

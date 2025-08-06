@@ -129,7 +129,11 @@ gcloud functions deploy ifood-scraper \
    --docker-repository ${REGION}-docker.pkg.dev/$PROJECT_ID/${FUNCTION_NAME}
    ```
 
-3. **添加 Artifact Registry 支持**：
+3. **移除不兼容参数**：
+   - 移除 `--docker-registry artifact-registry` 参数（Cloud Functions 2nd gen 不支持）
+   - 只保留 `--docker-repository` 参数
+
+4. **添加 Artifact Registry 支持**：
    - 启用 `artifactregistry.googleapis.com` API
    - 自动创建 Docker 仓库（如果不存在）
 
