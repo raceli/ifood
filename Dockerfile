@@ -51,8 +51,8 @@ COPY requirements.txt .
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 安装 Playwright 浏览器 (只安装 Chromium 以节省空间)
-RUN playwright install --with-deps chromium
+# 安装 Playwright 浏览器 (参考 GitHub issue #1491)
+RUN playwright install chromium
 
 # 验证浏览器安装
 RUN playwright --version && \

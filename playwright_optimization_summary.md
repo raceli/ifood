@@ -156,26 +156,30 @@ Cloud Function 运行时出现错误：
 Executable doesn't exist at /www-data-home/.cache/ms-playwright/chromium_headless_shell-1181/chrome-linux/headless_shell
 ```
 
+参考 [GitHub issue #1491](https://github.com/microsoft/playwright-python/issues/1491) 的解决方案。
+
 ### 解决方案
-已更新 Dockerfile 和 api.py：
+已更新 Dockerfile 和 api.py，参考 [GitHub issue #1491](https://github.com/microsoft/playwright-python/issues/1491)：
 
 1. **Dockerfile 优化**：
    - 添加完整的 Playwright 系统依赖
-   - 使用 `--with-deps` 参数安装 Chromium
+   - 使用 `playwright install chromium` 安装（移除 `--with-deps`）
    - 设置 `PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright` 环境变量
    - 验证浏览器安装（查找实际安装路径）
 
 2. **api.py 启动策略优化**：
    - 添加 "Cloud Function 浏览器启动" 策略
-   - 使用通配符路径查找实际浏览器位置
-   - 改进动态安装逻辑
+   - 添加 "无头浏览器启动" 策略（更多优化参数）
+   - 改进动态安装逻辑（使用 `/tmp/ms-playwright` 目录）
+   - 尝试系统 Chrome (`/usr/bin/google-chrome-stable`)
    - 增强错误处理和日志记录
 
 ### 修复内容
-- **Dockerfile**: 添加 30+ 个系统依赖包，修正浏览器路径
-- **api.py**: 新增浏览器路径查找逻辑，更新路径为 `/root/.cache/ms-playwright`
+- **Dockerfile**: 添加 30+ 个系统依赖包，简化浏览器安装
+- **api.py**: 新增多种启动策略，改进动态安装到临时目录
 - **环境变量**: 设置正确的浏览器路径
 - **路径验证**: 使用 `find` 命令查找实际安装位置
+- **错误处理**: 参考 GitHub issue 的最佳实践
 
 ### 重新部署
 ```bash

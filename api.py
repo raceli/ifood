@@ -273,6 +273,25 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
                     "--single-process"
                 ]
             }
+        },
+        {
+            "name": "无头浏览器启动",
+            "options": {
+                **launch_options,
+                "args": [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--single-process",
+                    "--disable-extensions",
+                    "--disable-plugins",
+                    "--disable-images",
+                    "--disable-javascript",
+                    "--disable-web-security",
+                    "--disable-features=VizDisplayCompositor"
+                ]
+            }
         }
     ]
     
@@ -293,23 +312,25 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
             }
         })
         
+        # 尝试使用系统 Chrome (如果存在)
         strategies.append({
-            "name": "动态安装后启动",
-            "options": None  # 特殊标记
-        })
-        
-        strategies.append({
-            "name": "系统浏览器启动",
+            "name": "系统 Chrome 启动",
             "options": {
                 **launch_options,
-                "executable_path": "/usr/bin/google-chrome",
+                "executable_path": "/usr/bin/google-chrome-stable",
                 "args": [
                     "--no-sandbox",
                     "--disable-setuid-sandbox", 
                     "--disable-dev-shm-usage",
-                    "--disable-gpu"
+                    "--disable-gpu",
+                    "--headless"
                 ]
             }
+        })
+        
+        strategies.append({
+            "name": "动态安装后启动",
+            "options": None  # 特殊标记
         })
     
     last_error = None
@@ -319,30 +340,60 @@ async def _launch_browser_with_fallback(playwright_instance, launch_options: Dic
             logging.info(f"尝试{strategy['name']}...")
             
             if strategy["name"] == "动态安装后启动":
-                # 动态安装浏览器
+                # 动态安装浏览器 (参考 GitHub issue #1491)
                 import subprocess
                 import sys
                 import os
                 logging.info("正在动态安装 Playwright 浏览器...")
                 
-                # 设置浏览器路径环境变量
-                os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/root/.cache/ms-playwright'
-                
-                subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], 
-                             check=True, capture_output=True, timeout=300)
-                logging.info("Chromium 安装完成，重新启动...")
-                
-                browser = await playwright_instance.chromium.launch(
-                    headless=True,
-                    timeout=30000,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage", 
-                        "--disable-gpu",
-                        "--single-process"
-                    ]
-                )
+                try:
+                    # 设置浏览器路径环境变量
+                    os.environ['PLAYWRIGHT_BROWSERS_PATH'] = '/tmp/ms-playwright'
+                    
+                    # 创建临时目录
+                    os.makedirs('/tmp/ms-playwright', exist_ok=True)
+                    
+                    # 安装浏览器到临时目录
+                    result = subprocess.run(
+                        [sys.executable, "-m", "playwright", "install", "chromium"], 
+                        capture_output=True, 
+                        text=True,
+                        timeout=300,
+                        env={**os.environ, 'PLAYWRIGHT_BROWSERS_PATH': '/tmp/ms-playwright'}
+                    )
+                    
+                    if result.returncode != 0:
+                        logging.warning(f"Playwright 安装失败: {result.stderr}")
+                        raise Exception(f"安装失败: {result.stderr}")
+                    
+                    logging.info("Chromium 安装完成，重新启动...")
+                    
+                    # 查找安装的浏览器
+                    import glob
+                    browser_paths = glob.glob('/tmp/ms-playwright/chromium-*/chrome-linux/chrome')
+                    
+                    if browser_paths:
+                        actual_browser_path = browser_paths[0]
+                        logging.info(f"找到浏览器路径: {actual_browser_path}")
+                        
+                        browser = await playwright_instance.chromium.launch(
+                            headless=True,
+                            timeout=30000,
+                            executable_path=actual_browser_path,
+                            args=[
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-dev-shm-usage", 
+                                "--disable-gpu",
+                                "--single-process"
+                            ]
+                        )
+                    else:
+                        raise Exception("未找到安装的浏览器")
+                        
+                except Exception as install_error:
+                    logging.error(f"动态安装失败: {install_error}")
+                    raise install_error
             else:
                 if strategy["name"] == "Cloud Function 浏览器启动":
                     # 处理通配符路径
