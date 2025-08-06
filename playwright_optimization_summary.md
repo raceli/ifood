@@ -177,9 +177,10 @@ Executable doesn't exist at /www-data-home/.cache/ms-playwright/chromium_headles
 ### 修复内容
 - **Dockerfile**: 添加 30+ 个系统依赖包，简化浏览器安装
 - **api.py**: 新增多种启动策略，改进动态安装到临时目录
-- **环境变量**: 设置正确的浏览器路径
+- **环境变量**: 设置正确的浏览器路径为 `/www-data-home/.cache/ms-playwright`
 - **路径验证**: 使用 `find` 命令查找实际安装位置
 - **错误处理**: 参考 GitHub issue 的最佳实践
+- **用户环境**: 适配 Cloud Function 的 `www-data` 用户环境
 
 ### 重新部署
 ```bash

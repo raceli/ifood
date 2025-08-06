@@ -65,7 +65,7 @@ COPY . .
 # 设置环境变量
 ENV PYTHONPATH=/app
 ENV FUNCTION_TARGET=get_menu_endpoint_sync
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/www-data-home/.cache/ms-playwright
 
 # 暴露端口
 EXPOSE 8080
