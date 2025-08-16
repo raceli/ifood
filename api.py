@@ -772,9 +772,11 @@ async def _scrape_ifood_page(
                 extra_http_headers=get_realistic_headers()
             )
             
-            # 设置地理位置权限
+            # 设置地理位置权限和坐标（在上下文级别）
             context = page.context
             await context.grant_permissions(['geolocation'])
+            logging.info("设置地理位置为圣保罗...")
+            await context.set_geolocation({"latitude": -23.5505, "longitude": -46.6333})  # 圣保罗坐标
             
             # 注入反检测脚本
             for script in get_stealth_page_scripts():
@@ -796,10 +798,6 @@ async def _scrape_ifood_page(
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache'
             })
-            
-            # 设置地理位置为圣保罗（避免latitude=&longitude=为空的问题）
-            logging.info("设置地理位置为圣保罗...")
-            await page.set_geolocation({"latitude": -23.5505, "longitude": -46.6333})  # 圣保罗坐标
             
             logging.info(f"正在导航到: {target_url}")
 
@@ -1000,9 +998,11 @@ async def _scrape_ifood_page_dom_fallback(
                 extra_http_headers=get_realistic_headers()
             )
             
-            # 设置地理位置权限（DOM备用方案）
+            # 设置地理位置权限和坐标（DOM备用方案）
             context = page.context
             await context.grant_permissions(['geolocation'])
+            logging.info("DOM备用方案：设置地理位置为圣保罗...")
+            await context.set_geolocation({"latitude": -23.5505, "longitude": -46.6333})  # 圣保罗坐标
             
             # 注入反检测脚本
             for script in get_stealth_page_scripts():
@@ -1016,10 +1016,6 @@ async def _scrape_ifood_page_dom_fallback(
             if IS_CLOUD_FUNCTION:
                 await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
                 await page.route("**/*.{css}", lambda route: route.abort())
-            
-            # 设置地理位置为圣保罗（DOM备用方案）
-            logging.info("DOM备用方案：设置地理位置为圣保罗...")
-            await page.set_geolocation({"latitude": -23.5505, "longitude": -46.6333})  # 圣保罗坐标
             
             logging.info(f"DOM备用方案：导航到 {target_url}")
             
