@@ -1698,7 +1698,7 @@ async def get_catalog_from_url(target_url: str, proxy_config: Optional[Dict[str,
     """
     使用重构后的抓取逻辑访问iFood页面，并仅拦截菜单目录API的响应。
     """
-    api_patterns = {"menu": re.compile(r"merchants/.*/catalog")}
+    api_patterns = {"menu": re.compile(r"cw-marketplace\.ifood\.com\.br/v1/bm/merchants/.*/catalog")}
     return await _scrape_ifood_page(target_url, proxy_config, api_patterns)
 
 async def get_shop_info_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
@@ -1717,7 +1717,7 @@ async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str
     # 同时拦截店铺信息和菜单API
     api_patterns = {
         "shop_info": re.compile(r"merchant-info/graphql"),
-        "menu": re.compile(r"merchants/.*/catalog")
+        "menu": re.compile(r"cw-marketplace\.ifood\.com\.br/v1/bm/merchants/.*/catalog")
     }
     
     try:
