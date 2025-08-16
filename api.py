@@ -1006,8 +1006,28 @@ async def _scrape_ifood_page_dom_fallback(
                             continue
                     
                     if address_triggered:
-                        # 等待页面更新
-                        await page.wait_for_timeout(5000)
+                        # 等待页面更新 - 增加等待时间
+                        logging.info("DOM备用方案：等待页面搜索完成...")
+                        await page.wait_for_timeout(8000)  # 增加到8秒
+                        
+                        # 等待搜索完成 - 检查页面是否还在搜索状态
+                        search_complete = False
+                        for attempt in range(10):  # 最多等待20秒
+                            try:
+                                page_text = await page.text_content('body')
+                                if page_text and 'Buscando por' not in page_text:
+                                    search_complete = True
+                                    logging.info(f"DOM备用方案：搜索完成 (尝试 {attempt + 1})")
+                                    break
+                                else:
+                                    logging.info(f"DOM备用方案：仍在搜索中... (尝试 {attempt + 1})")
+                                    await page.wait_for_timeout(2000)
+                            except Exception:
+                                await page.wait_for_timeout(2000)
+                        
+                        if not search_complete:
+                            logging.warning("DOM备用方案：搜索可能未完成，继续处理...")
+                        
                         await page.wait_for_load_state('networkidle', timeout=30000)
                         logging.info("DOM备用方案：地址输入完成，页面已更新")
                         
@@ -1303,9 +1323,16 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
                     menu_info['categories'].append(category_info)
         else:
             # 处理找到的分类
-            for category_element in category_elements:
+            for i, category_element in enumerate(category_elements):
                 try:
                     category_info = {}
+                    
+                    # 调试：记录分类元素的基本信息
+                    try:
+                        element_html = await category_element.inner_html()
+                        logging.info(f"处理分类元素 {i+1}: HTML长度={len(element_html)}")
+                    except Exception:
+                        pass
                     
                     # 提取分类名称 - 使用更广泛的选择器
                     name_selectors = [
@@ -1360,9 +1387,14 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
                         except Exception:
                             continue
                     
-                    if category_info.get('name') and category_info.get('items'):
+                    # 即使没有商品，也保存分类信息（用于调试）
+                    if category_info.get('name'):
+                        if not category_info.get('items'):
+                            category_info['items'] = []
                         menu_info['categories'].append(category_info)
                         logging.info(f"提取分类: {category_info['name']} ({len(category_info['items'])} 个商品)")
+                    else:
+                        logging.warning(f"分类元素未找到名称，跳过")
                         
                 except Exception as e:
                     logging.warning(f"提取菜单分类时出错: {str(e)}")
