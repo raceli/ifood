@@ -935,15 +935,20 @@ async def _scrape_ifood_page_dom_fallback(
             # 等待页面加载完成
             await page.wait_for_load_state('networkidle', timeout=request_timeout)
             
-            # 检查是否需要输入地址
+            # 检查页面内容，看是否需要地址输入
             try:
-                # 检查是否有地址输入提示
-                address_prompt = await page.query_selector('text=Escolha um endereço, text=Informe seu endereço, input[placeholder*="endereço"], input[placeholder*="CEP"]')
-                if address_prompt:
-                    logging.info("DOM备用方案：检测到需要输入地址，尝试输入默认地址...")
+                page_content = await page.content()
+                
+                # 检查页面是否包含地址相关的文本
+                if "Escolha um endereço" in page_content or "Informe seu endereço" in page_content:
+                    logging.info("DOM备用方案：检测到需要地址的页面内容，尝试处理地址输入...")
                     
-                    # 尝试输入一个圣保罗的默认地址
-                    address_inputs = [
+                    # 尝试查找并点击地址相关的按钮或输入框
+                    address_triggers = [
+                        'button:has-text("Informe seu endereço")',
+                        'button:has-text("Escolha um endereço")',
+                        'div:has-text("Informe seu endereço")',
+                        'div:has-text("Escolha um endereço")',
                         'input[placeholder*="endereço"]',
                         'input[placeholder*="CEP"]',
                         'input[type="text"]',
@@ -951,31 +956,85 @@ async def _scrape_ifood_page_dom_fallback(
                         '.address-input'
                     ]
                     
-                    for selector in address_inputs:
+                    address_triggered = False
+                    for selector in address_triggers:
                         try:
-                            address_input = await page.query_selector(selector)
-                            if address_input:
-                                # 输入圣保罗的一个地址
-                                await address_input.fill("Rua Augusta, 123, São Paulo, SP")
-                                await page.wait_for_timeout(1000)
-                                
-                                # 尝试按回车或点击确认按钮
-                                await address_input.press('Enter')
-                                await page.wait_for_timeout(2000)
-                                
-                                # 或者查找确认按钮
-                                confirm_buttons = await page.query_selector_all('button:has-text("Confirmar"), button:has-text("OK"), button[type="submit"]')
-                                if confirm_buttons:
-                                    await confirm_buttons[0].click()
-                                    await page.wait_for_timeout(3000)
-                                
-                                logging.info("DOM备用方案：已输入地址，等待页面更新...")
+                            elements = await page.query_selector_all(selector)
+                            for element in elements:
+                                try:
+                                    # 如果是输入框，直接输入
+                                    tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+                                    if tag_name == 'input':
+                                        await element.fill("Rua Augusta, 123, São Paulo, SP")
+                                        await page.wait_for_timeout(1000)
+                                        await element.press('Enter')
+                                        await page.wait_for_timeout(3000)
+                                        logging.info("DOM备用方案：已在输入框中输入地址")
+                                        address_triggered = True
+                                        break
+                                    else:
+                                        # 如果是按钮或div，点击它
+                                        await element.click()
+                                        await page.wait_for_timeout(2000)
+                                        logging.info("DOM备用方案：已点击地址相关元素")
+                                        
+                                        # 点击后可能出现输入框，再次尝试输入
+                                        new_inputs = await page.query_selector_all('input[type="text"], input[placeholder*="endereço"], input[placeholder*="CEP"]')
+                                        for input_elem in new_inputs:
+                                            try:
+                                                await input_elem.fill("Rua Augusta, 123, São Paulo, SP")
+                                                await page.wait_for_timeout(1000)
+                                                await input_elem.press('Enter')
+                                                await page.wait_for_timeout(3000)
+                                                logging.info("DOM备用方案：已在弹出的输入框中输入地址")
+                                                address_triggered = True
+                                                break
+                                            except Exception:
+                                                continue
+                                        
+                                        if address_triggered:
+                                            break
+                                except Exception as e:
+                                    logging.warning(f"处理地址元素时出错: {str(e)}")
+                                    continue
+                            
+                            if address_triggered:
                                 break
+                                
                         except Exception as e:
-                            logging.warning(f"输入地址时出错: {str(e)}")
+                            logging.warning(f"查找地址元素时出错 [{selector}]: {str(e)}")
                             continue
+                    
+                    if address_triggered:
+                        # 等待页面更新
+                        await page.wait_for_timeout(5000)
+                        await page.wait_for_load_state('networkidle', timeout=30000)
+                        logging.info("DOM备用方案：地址输入完成，页面已更新")
+                        
+                        # 调试：保存页面截图（仅在云环境中）
+                        if IS_CLOUD_FUNCTION or IS_CLOUD_RUN:
+                            try:
+                                await page.screenshot(path='/tmp/page_after_address.png')
+                                logging.info("DOM备用方案：已保存地址输入后的页面截图")
+                            except Exception:
+                                pass
+                    else:
+                        logging.warning("DOM备用方案：未能成功触发地址输入")
+                        
+                        # 调试：保存当前页面截图和HTML
+                        if IS_CLOUD_FUNCTION or IS_CLOUD_RUN:
+                            try:
+                                await page.screenshot(path='/tmp/page_no_address.png')
+                                with open('/tmp/page_content.html', 'w', encoding='utf-8') as f:
+                                    f.write(page_content[:5000])  # 只保存前5000字符
+                                logging.info("DOM备用方案：已保存无法输入地址时的页面截图和内容")
+                            except Exception:
+                                pass
+                else:
+                    logging.info("DOM备用方案：页面不需要地址输入")
+                    
             except Exception as e:
-                logging.warning(f"地址检查时出错: {str(e)}")
+                logging.warning(f"地址处理时出错: {str(e)}")
             
             # 等待关键元素出现
             try:
