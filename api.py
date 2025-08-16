@@ -671,7 +671,60 @@ async def _process_api_response(key: str, response: Any) -> Dict[str, Any]:
     if response.status == 403:
         return {"error": "Forbidden", "message": f"代理IP在获取 {key} 时被封禁或拒绝访问。", "status": 403}
     if response.ok:
-        return await response.json()
+        try:
+            json_data = await response.json()
+            
+            # 为catalog/menu数据添加详细日志
+            if key == "menu" and isinstance(json_data, dict):
+                logging.info(f"=== CATALOG/MENU API 响应详情 ===")
+                logging.info(f"响应URL: {response.url}")
+                logging.info(f"响应状态: {response.status}")
+                logging.info(f"响应头: {dict(response.headers)}")
+                
+                # 记录catalog数据结构
+                if "categories" in json_data:
+                    categories_count = len(json_data["categories"])
+                    logging.info(f"分类数量: {categories_count}")
+                    
+                    for i, category in enumerate(json_data["categories"]):
+                        if isinstance(category, dict):
+                            category_name = category.get("name", "未知分类")
+                            items_count = len(category.get("items", []))
+                            logging.info(f"  分类 {i+1}: {category_name} - 商品数量: {items_count}")
+                            
+                            # 记录前几个商品的信息
+                            items = category.get("items", [])
+                            for j, item in enumerate(items[:3]):  # 只记录前3个商品
+                                if isinstance(item, dict):
+                                    item_name = item.get("name", "未知商品")
+                                    item_price = item.get("price", "无价格")
+                                    logging.info(f"    商品 {j+1}: {item_name} - 价格: {item_price}")
+                            
+                            if len(items) > 3:
+                                logging.info(f"    ... 还有 {len(items) - 3} 个商品")
+                        else:
+                            logging.warning(f"  分类 {i+1} 格式异常: {type(category)}")
+                
+                # 记录其他重要字段
+                for field in ["merchantId", "merchantName", "totalItems", "totalCategories"]:
+                    if field in json_data:
+                        logging.info(f"{field}: {json_data[field]}")
+                
+                logging.info(f"=== CATALOG/MENU API 响应详情结束 ===")
+            else:
+                logging.info(f"{key} API 响应数据: {json_data}")
+            
+            return json_data
+        except Exception as json_error:
+            logging.error(f"解析 {key} API JSON响应时出错: {str(json_error)}")
+            # 尝试获取原始文本内容
+            try:
+                raw_text = await response.text()
+                logging.info(f"{key} API 原始响应内容 (前500字符): {raw_text[:500]}")
+                return {"error": "JSONParseError", "message": f"JSON解析失败: {str(json_error)}", "raw_content": raw_text[:1000]}
+            except Exception as text_error:
+                logging.error(f"获取 {key} API 原始响应内容时出错: {str(text_error)}")
+                return {"error": "ResponseParseError", "message": f"无法解析响应: {str(json_error)}"}
     else:
         return {"error": "APIError", "message": f"{key} API返回错误状态: {response.status}", "status": response.status}
 
@@ -750,6 +803,10 @@ async def _scrape_ifood_page(
             start_time = time.time()
 
             # 设置更合理的超时时间 - 完全依赖API拦截，不等待DOM
+            logging.info(f"开始设置API拦截模式，等待以下API响应:")
+            for key, pattern in api_patterns.items():
+                logging.info(f"  - {key}: {pattern.pattern}")
+            
             response_awaitables = [
                 page.wait_for_event(
                     "response",
@@ -785,6 +842,13 @@ async def _scrape_ifood_page(
                     logging.error(f"等待 API '{api_keys[i]}' 响应时失败: {type(res).__name__}")
             
             scraped_responses = dict(zip(api_keys, response_results))
+            
+            logging.info(f"API拦截结果统计:")
+            for key, response in scraped_responses.items():
+                if isinstance(response, Exception):
+                    logging.info(f"  - {key}: 异常 - {type(response).__name__}")
+                else:
+                    logging.info(f"  - {key}: 成功 - URL: {response.url}, 状态: {response.status}")
 
             # 在浏览器关闭前处理所有响应
             processing_tasks = [
@@ -796,13 +860,26 @@ async def _scrape_ifood_page(
             # 检查请求是否成功
             has_success = any("error" not in result for result in processed_results_list if isinstance(result, dict))
             
+            # 记录最终处理结果
+            final_results = dict(zip(api_keys, processed_results_list))
+            logging.info(f"最终处理结果:")
+            for key, result in final_results.items():
+                if isinstance(result, dict) and "error" in result:
+                    logging.info(f"  - {key}: 错误 - {result.get('error', 'Unknown')}: {result.get('message', 'No message')}")
+                else:
+                    if key == "menu" and isinstance(result, dict):
+                        categories_count = len(result.get("categories", []))
+                        logging.info(f"  - {key}: 成功 - 包含 {categories_count} 个分类")
+                    else:
+                        logging.info(f"  - {key}: 成功 - 数据类型: {type(result)}")
+            
             # 记录代理使用结果
             if has_success:
                 record_proxy_result(proxy_config, True, response_time)
             else:
                 record_proxy_result(proxy_config, False, response_time, "all_apis_failed")
             
-            return dict(zip(api_keys, processed_results_list))
+            return final_results
 
         except Exception as e:
             error_message = str(e)
@@ -1062,9 +1139,11 @@ async def _scrape_ifood_page_dom_fallback(
             
             # 提取店铺信息
             shop_info = await _extract_shop_info_from_dom(page)
+            logging.info(f"DOM解析店铺信息结果: {shop_info}")
             
             # 提取菜单信息
             menu_info = await _extract_menu_info_from_dom(page)
+            logging.info(f"DOM解析菜单信息结果: {menu_info}")
             
             return {
                 "shop_info": shop_info,
@@ -1399,6 +1478,23 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
         
         # 记录结果
         logging.info(f"DOM解析提取到的菜单信息: {len(menu_info['categories'])} 个分类")
+        
+        # 详细记录每个分类的内容
+        for i, category in enumerate(menu_info['categories']):
+            category_name = category.get('name', '未知分类')
+            items_count = len(category.get('items', []))
+            logging.info(f"  分类 {i+1}: {category_name} - 商品数量: {items_count}")
+            
+            # 记录前几个商品的信息
+            items = category.get('items', [])
+            for j, item in enumerate(items[:3]):  # 只记录前3个商品
+                if isinstance(item, dict):
+                    item_name = item.get('name', '未知商品')
+                    item_price = item.get('price', '无价格')
+                    logging.info(f"    商品 {j+1}: {item_name} - 价格: {item_price}")
+            
+            if len(items) > 3:
+                logging.info(f"    ... 还有 {len(items) - 3} 个商品")
         
         if menu_info['categories']:
             return menu_info
