@@ -50,11 +50,11 @@ COPY . .
 
 # 设置环境变量
 ENV PYTHONPATH=/app
-ENV PORT=8080
+ENV PORT=8000
 ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # 暴露端口
-EXPOSE 8080
+EXPOSE 8000
 
 # 启动命令 - 使用uvicorn启动FastAPI应用
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8080"] 
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"] 
