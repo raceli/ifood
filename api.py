@@ -3,6 +3,7 @@ import logging
 import random
 import re
 import os
+import time
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError
@@ -10,6 +11,14 @@ from typing import List, Optional, Dict, Any
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fake_useragent import UserAgent, FakeUserAgentError
+from stealth_config import (
+    get_stealth_browser_args, 
+    get_random_stealth_config, 
+    get_stealth_page_scripts,
+    get_realistic_headers,
+    get_human_like_delay
+)
+from proxy_manager import get_smart_proxy_config, record_proxy_result, proxy_manager
 
 # --- 配置 ---
 PROXY_FILE = "proxies.txt"
@@ -25,8 +34,9 @@ CLOUD_PROXY_PORT = os.getenv("CLOUD_PROXY_PORT", "1080")
 # 代理轮换策略
 PROXY_ROTATION_STRATEGY = os.getenv("PROXY_ROTATION_STRATEGY", "random")  # random, sequential, session
 
-# GCP Cloud Function 特定配置
+# GCP Cloud Function/Cloud Run 特定配置
 IS_CLOUD_FUNCTION = os.getenv("FUNCTION_TARGET") is not None
+IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None  # Cloud Run 环境变量
 GCP_REGION = os.getenv("FUNCTION_REGION", "us-central1")
 USE_GCP_NATURAL_IP_ROTATION = os.getenv("USE_GCP_NATURAL_IP_ROTATION", "true").lower() == "true"
 
@@ -36,6 +46,31 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+# 创建自定义日志记录器
+logger = logging.getLogger("ifood_api")
+logger.setLevel(logging.INFO)
+
+# 添加控制台处理器
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+# 在 Cloud Function 环境中添加文件日志
+if IS_CLOUD_FUNCTION:
+    try:
+        file_handler = logging.FileHandler("/tmp/ifood_api.log")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        logger.info("已启用文件日志记录")
+    except Exception as e:
+        logger.warning(f"无法创建文件日志处理器: {e}")
 
 # --- User-Agent配置 ---
 try:
@@ -80,6 +115,31 @@ app.add_middleware(
     allow_methods=["*"],  # 允许所有HTTP方法
     allow_headers=["*"],  # 允许所有请求头
 )
+
+# --- 全局异常处理器 ---
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """全局异常处理器，统一处理未捕获的异常"""
+    logger.error(f"未捕获的异常: {type(exc).__name__} - {str(exc)}", exc_info=True)
+    
+    return {
+        "error": "InternalServerError",
+        "message": "服务器内部错误",
+        "detail": str(exc) if not IS_CLOUD_FUNCTION else "请查看服务器日志",
+        "timestamp": asyncio.get_event_loop().time()
+    }
+
+@app.exception_handler(TimeoutError)
+async def timeout_exception_handler(request, exc):
+    """超时异常处理器"""
+    logger.warning(f"请求超时: {str(exc)}")
+    
+    return {
+        "error": "TimeoutError", 
+        "message": "请求超时，请稍后重试",
+        "detail": str(exc),
+        "timestamp": asyncio.get_event_loop().time()
+    }
 
 # --- 数据模型 ---
 class StoreRequest(BaseModel):
@@ -152,10 +212,10 @@ def get_gcp_natural_ip_config() -> Optional[Dict[str, str]]:
 
 def get_random_proxy_config() -> Optional[Dict[str, str]]:
     """
-    智能代理选择策略：
+    增强的智能代理选择策略：
     1. 在Cloud Function环境中，优先使用GCP自然IP轮换
-    2. 如果配置了云代理，使用云代理
-    3. 在非Cloud Function环境中，回退到本地代理文件
+    2. 使用智能代理管理器选择最佳代理
+    3. 如果配置了云代理，使用云代理
     4. 最后直接连接
     
     返回Playwright格式的代理配置字典。
@@ -165,18 +225,17 @@ def get_random_proxy_config() -> Optional[Dict[str, str]]:
         logging.info("在Cloud Function环境中，使用GCP自然IP轮换")
         return None  # 返回None表示不使用代理，让GCP自动分配IP
     
-    # 2. 尝试云代理
+    # 2. 优先使用智能代理管理器
+    smart_proxy = get_smart_proxy_config()
+    if smart_proxy:
+        logging.info(f"使用智能代理管理器选择的代理: {smart_proxy.get('server', 'unknown')}")
+        return smart_proxy
+    
+    # 3. 回退到云代理
     cloud_proxy = get_cloud_proxy_config()
     if cloud_proxy:
         logging.info("使用云代理配置")
         return cloud_proxy
-    
-    # 3. 在非Cloud Function环境中，回退到本地代理文件
-    if not IS_CLOUD_FUNCTION:
-        local_proxy = get_local_proxy_config()
-        if local_proxy:
-            logging.info("使用本地代理文件")
-            return local_proxy
     
     # 4. 最终回退
     if IS_CLOUD_FUNCTION:
@@ -206,49 +265,25 @@ def clean_url(url: str) -> str:
 
 def _get_optimized_browser_args() -> List[str]:
     """
-    根据 Browserless 最佳实践，返回优化的浏览器启动参数。
-    针对 Cloud Function 环境进行了专门优化。
+    获取增强的反检测浏览器启动参数
+    结合了Browserless最佳实践和高级反检测技术
     """
-    base_args = [
-        "--no-sandbox",
-        "--disable-setuid-sandbox", 
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--disable-software-rasterizer",
-        "--disable-background-timer-throttling",
-        "--disable-backgrounding-occluded-windows",
-        "--disable-renderer-backgrounding",
-        "--disable-features=TranslateUI,VizDisplayCompositor",
-        "--disable-ipc-flooding-protection",
-        "--disable-extensions",
-        "--disable-plugins",
-        "--disable-default-apps",
-        "--disable-component-extensions-with-background-pages",
-        "--no-first-run",
-        "--no-zygote",
-        "--memory-pressure-off",
-        "--max_old_space_size=4096"
-    ]
+    # 使用新的隐身配置
+    base_args = get_stealth_browser_args()
     
-    # Cloud Function 特定优化
-    if IS_CLOUD_FUNCTION:
+    # 在 Cloud Function 环境中进一步优化
+    if IS_CLOUD_FUNCTION or IS_CLOUD_RUN:
         base_args.extend([
             "--single-process",  # 减少内存占用
             "--disable-images",  # 禁用图片加载
-            "--disable-web-security",  # 绕过某些安全限制
             "--disable-site-isolation-trials",
             "--disable-speech-api",
-            "--disable-background-networking",
-            "--disable-sync",
             "--metrics-recording-only",
             "--safebrowsing-disable-auto-update",
-            "--disable-client-side-phishing-detection"
         ])
         
-        # 设置更小的窗口大小以节省内存
-        base_args.extend([
-            "--window-size=1280,720"
-        ])
+        # 设置适合云环境的窗口大小
+        base_args.append("--window-size=1366,768")
     
     return base_args
 
@@ -665,15 +700,21 @@ async def _scrape_ifood_page(
             # 统一的浏览器启动逻辑
             browser = await _launch_browser_with_fallback(p, launch_options)
             
-            # 创建页面并设置优化配置
-            user_agent_str = get_random_user_agent()
-            logging.info(f"使用 User-Agent: {user_agent_str}")
+            # 获取随机隐身配置
+            stealth_config = get_random_stealth_config()
             
-            # 根据 Browserless 建议优化页面设置
+            # 创建页面并设置增强的反检测配置
+            logging.info(f"使用隐身配置: {stealth_config.user_agent[:50]}...")
+            
             page = await browser.new_page(
-                user_agent=user_agent_str,
-                viewport={"width": 1280, "height": 720}  # 设置较小的视口以节省内存
+                user_agent=stealth_config.user_agent,
+                viewport={"width": stealth_config.viewport_width, "height": stealth_config.viewport_height},
+                extra_http_headers=get_realistic_headers()
             )
+            
+            # 注入反检测脚本
+            for script in get_stealth_page_scripts():
+                await page.add_init_script(script)
             
             # 设置页面超时和错误处理
             page.set_default_navigation_timeout(45000)  # 45秒导航超时
@@ -685,6 +726,9 @@ async def _scrape_ifood_page(
                 await page.route("**/*.{css}", lambda route: route.abort())  # 可选：阻止CSS以提高速度
             
             logging.info(f"正在导航到: {target_url}")
+
+            # 记录开始时间（用于计算响应时间）
+            start_time = time.time()
 
             # 设置更合理的超时时间
             response_awaitables = [
@@ -704,6 +748,9 @@ async def _scrape_ifood_page(
             all_results = await asyncio.gather(
                 *response_awaitables, navigation_awaitable, return_exceptions=True
             )
+            
+            # 计算响应时间
+            response_time = time.time() - start_time
             
             # 【修复】增加明确的日志记录，以解释为何失败
             # 1. 检查导航任务本身是否失败
@@ -727,6 +774,15 @@ async def _scrape_ifood_page(
             ]
             processed_results_list = await asyncio.gather(*processing_tasks)
             
+            # 检查请求是否成功
+            has_success = any("error" not in result for result in processed_results_list if isinstance(result, dict))
+            
+            # 记录代理使用结果
+            if has_success:
+                record_proxy_result(proxy_config, True, response_time)
+            else:
+                record_proxy_result(proxy_config, False, response_time, "all_apis_failed")
+            
             return dict(zip(api_keys, processed_results_list))
 
         except Exception as e:
@@ -748,6 +804,13 @@ async def _scrape_ifood_page(
                 error_type = "MemoryError"
                 
             logging.error(f"抓取过程中发生错误 [{error_type}]: {error_message}")
+            
+            # 记录代理失败
+            if 'start_time' in locals():
+                response_time = time.time() - start_time
+            else:
+                response_time = 0.0
+            record_proxy_result(proxy_config, False, response_time, error_type)
             
             # 记录更多调试信息用于 Cloud Function 环境
             if IS_CLOUD_FUNCTION:
@@ -816,6 +879,170 @@ async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str
     return await _scrape_ifood_page(target_url, proxy_config, api_patterns)
 
 # --- API 端点 ---
+
+@app.get("/health", summary="健康检查", status_code=200)
+async def health_check():
+    """
+    健康检查端点，返回服务状态信息。
+    """
+    import psutil
+    import platform
+    
+    try:
+        # 获取系统信息
+        memory = psutil.virtual_memory()
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        health_info = {
+            "status": "healthy",
+            "timestamp": asyncio.get_event_loop().time(),
+            "version": "1.0.0",
+            "environment": {
+                "is_cloud_function": IS_CLOUD_FUNCTION,
+                "gcp_region": GCP_REGION if IS_CLOUD_FUNCTION else None,
+                "proxy_strategy": PROXY_ROTATION_STRATEGY,
+                "platform": platform.platform(),
+                "python_version": platform.python_version()
+            },
+            "system": {
+                "memory_usage_percent": memory.percent,
+                "memory_available_mb": memory.available / 1024 / 1024,
+                "cpu_percent": cpu_percent,
+                "disk_usage_percent": psutil.disk_usage('/').percent
+            },
+            "proxy": {
+                "cloud_proxy_configured": bool(CLOUD_PROXY_HOST),
+                "local_proxy_file_exists": os.path.exists(PROXY_FILE)
+            }
+        }
+        
+        return health_info
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": asyncio.get_event_loop().time()
+        }
+
+@app.get("/status", summary="详细状态信息", status_code=200)
+async def status_info(token: str = Depends(verify_token)):
+    """
+    获取详细的系统状态信息，需要认证。
+    """
+    import psutil
+    import platform
+    from datetime import datetime
+    
+    # 获取代理配置信息
+    proxy_config = get_random_proxy_config()
+    proxy_info = "无代理" if proxy_config is None else f"代理: {proxy_config.get('server', '未知')}"
+    
+    # 获取智能代理管理器统计信息
+    proxy_stats = proxy_manager.get_proxy_stats_summary()
+    
+    status_info = {
+        "service": "iFood Menu API",
+        "version": "1.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "uptime": asyncio.get_event_loop().time(),
+        "proxy_config": proxy_info,
+        "proxy_manager_stats": proxy_stats,
+        "environment": {
+            "is_cloud_function": IS_CLOUD_FUNCTION,
+            "gcp_region": GCP_REGION if IS_CLOUD_FUNCTION else None,
+            "use_gcp_ip_rotation": USE_GCP_NATURAL_IP_ROTATION,
+            "proxy_rotation_strategy": PROXY_ROTATION_STRATEGY
+        },
+        "system": {
+            "platform": platform.platform(),
+            "python_version": platform.python_version(),
+            "cpu_count": psutil.cpu_count(),
+            "memory_total_gb": psutil.virtual_memory().total / 1024 / 1024 / 1024,
+            "disk_total_gb": psutil.disk_usage('/').total / 1024 / 1024 / 1024
+        }
+    }
+    
+    return status_info
+
+@app.post("/test", summary="测试代理和浏览器功能", status_code=200)
+async def test_endpoint(token: str = Depends(verify_token)):
+    """
+    测试代理和浏览器功能是否正常工作。
+    会尝试访问一个简单的测试页面并返回结果。
+    """
+    test_url = "https://httpbin.org/ip"
+    proxy_config = get_random_proxy_config()
+    
+    try:
+        async with async_playwright() as p:
+            # 启动浏览器
+            launch_options = {
+                "headless": True,
+                "timeout": 30000,
+                "args": _get_optimized_browser_args()
+            }
+            
+            if proxy_config:
+                launch_options["proxy"] = proxy_config
+                logging.info(f"使用代理测试: {proxy_config.get('server', '未知')}")
+            
+            browser = await _launch_browser_with_fallback(p, launch_options)
+            
+            try:
+                page = await browser.new_page()
+                page.set_default_navigation_timeout(30000)
+                
+                # 访问测试页面
+                response = await page.goto(test_url, wait_until='domcontentloaded')
+                
+                if response and response.ok:
+                    # 获取页面内容
+                    content = await page.text_content('body')
+                    
+                    # 尝试解析JSON
+                    try:
+                        import json
+                        ip_info = json.loads(content)
+                        test_result = {
+                            "status": "success",
+                            "message": "代理和浏览器功能正常",
+                            "test_url": test_url,
+                            "response_status": response.status,
+                            "ip_info": ip_info,
+                            "proxy_used": proxy_config is not None,
+                            "proxy_server": proxy_config.get('server') if proxy_config else None
+                        }
+                    except json.JSONDecodeError:
+                        test_result = {
+                            "status": "partial_success",
+                            "message": "页面访问成功但内容解析失败",
+                            "test_url": test_url,
+                            "response_status": response.status,
+                            "raw_content": content[:500] + "..." if len(content) > 500 else content,
+                            "proxy_used": proxy_config is not None
+                        }
+                else:
+                    test_result = {
+                        "status": "failed",
+                        "message": f"页面访问失败，状态码: {response.status if response else 'unknown'}",
+                        "test_url": test_url,
+                        "proxy_used": proxy_config is not None
+                    }
+                    
+            finally:
+                await browser.close()
+                
+    except Exception as e:
+        test_result = {
+            "status": "error",
+            "message": f"测试过程中发生错误: {str(e)}",
+            "error_type": type(e).__name__,
+            "test_url": test_url,
+            "proxy_used": proxy_config is not None
+        }
+    
+    return test_result
+
 @app.post("/get_menu", summary="获取iFood店铺菜单", status_code=200)
 async def get_menu_endpoint(request: StoreRequest, token: str = Depends(verify_token)):
     """
@@ -824,6 +1051,11 @@ async def get_menu_endpoint(request: StoreRequest, token: str = Depends(verify_t
     - **url**: iFood店铺的完整URL。
     - **需要认证**: 请求头中必须包含 'Authorization: Bearer your-super-secret-token'。
     """
+    # 添加人类行为模拟延迟
+    delay = get_human_like_delay()
+    logging.info(f"模拟人类行为，等待 {delay:.2f} 秒...")
+    await asyncio.sleep(delay)
+    
     proxy_config = get_random_proxy_config()
     
     # 清理URL，去掉查询参数
@@ -846,6 +1078,11 @@ async def get_shop_info_endpoint(request: StoreRequest, token: str = Depends(ver
     - **url**: iFood店铺的完整URL。
     - **需要认证**: 请求头中必须包含 'Authorization: Bearer your-super-secret-token'。
     """
+    # 添加人类行为模拟延迟
+    delay = get_human_like_delay()
+    logging.info(f"模拟人类行为，等待 {delay:.2f} 秒...")
+    await asyncio.sleep(delay)
+    
     proxy_config = get_random_proxy_config()
     
     # 清理URL，去掉查询参数
@@ -868,6 +1105,11 @@ async def get_shop_all_endpoint(request: StoreRequest, token: str = Depends(veri
     - **url**: iFood店铺的完整URL。
     - **需要认证**: 请求头中必须包含 'Authorization: Bearer your-super-secret-token'。
     """
+    # 添加人类行为模拟延迟
+    delay = get_human_like_delay()
+    logging.info(f"模拟人类行为，等待 {delay:.2f} 秒...")
+    await asyncio.sleep(delay)
+    
     proxy_config = get_random_proxy_config()
     
     # 清理URL，去掉查询参数
@@ -891,3 +1133,32 @@ async def get_shop_all_endpoint(request: StoreRequest, token: str = Depends(veri
 # 3. 运行Playwright的浏览器安装: playwright install
 # 4. 启动服务器: uvicorn api:app --reload
 # 5. 在 http://127.0.0.1:8000/docs 查看API文档并测试。
+
+# --- 主程序入口点 ---
+if __name__ == "__main__":
+    import uvicorn
+    
+    # 配置服务器参数
+    host = "0.0.0.0"
+    port = 8000
+    reload = True
+    
+    print(f"🚀 启动 iFood Menu API 服务器...")
+    print(f"📍 服务器地址: http://{host}:{port}")
+    print(f"📚 API 文档: http://{host}:{port}/docs")
+    print(f"🔑 认证令牌: {API_TOKEN}")
+    print(f"🌐 代理策略: {PROXY_ROTATION_STRATEGY}")
+    print(f"☁️  Cloud Function 模式: {IS_CLOUD_FUNCTION}")
+    
+    if IS_CLOUD_FUNCTION:
+        print(f"🌍 GCP 区域: {GCP_REGION}")
+        print(f"🔄 GCP IP 轮换: {USE_GCP_NATURAL_IP_ROTATION}")
+    
+    # 启动服务器
+    uvicorn.run(
+        "api:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info"
+    )
