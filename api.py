@@ -935,6 +935,48 @@ async def _scrape_ifood_page_dom_fallback(
             # 等待页面加载完成
             await page.wait_for_load_state('networkidle', timeout=request_timeout)
             
+            # 检查是否需要输入地址
+            try:
+                # 检查是否有地址输入提示
+                address_prompt = await page.query_selector('text=Escolha um endereço, text=Informe seu endereço, input[placeholder*="endereço"], input[placeholder*="CEP"]')
+                if address_prompt:
+                    logging.info("DOM备用方案：检测到需要输入地址，尝试输入默认地址...")
+                    
+                    # 尝试输入一个圣保罗的默认地址
+                    address_inputs = [
+                        'input[placeholder*="endereço"]',
+                        'input[placeholder*="CEP"]',
+                        'input[type="text"]',
+                        '[data-testid="address-input"]',
+                        '.address-input'
+                    ]
+                    
+                    for selector in address_inputs:
+                        try:
+                            address_input = await page.query_selector(selector)
+                            if address_input:
+                                # 输入圣保罗的一个地址
+                                await address_input.fill("Rua Augusta, 123, São Paulo, SP")
+                                await page.wait_for_timeout(1000)
+                                
+                                # 尝试按回车或点击确认按钮
+                                await address_input.press('Enter')
+                                await page.wait_for_timeout(2000)
+                                
+                                # 或者查找确认按钮
+                                confirm_buttons = await page.query_selector_all('button:has-text("Confirmar"), button:has-text("OK"), button[type="submit"]')
+                                if confirm_buttons:
+                                    await confirm_buttons[0].click()
+                                    await page.wait_for_timeout(3000)
+                                
+                                logging.info("DOM备用方案：已输入地址，等待页面更新...")
+                                break
+                        except Exception as e:
+                            logging.warning(f"输入地址时出错: {str(e)}")
+                            continue
+            except Exception as e:
+                logging.warning(f"地址检查时出错: {str(e)}")
+            
             # 等待关键元素出现
             try:
                 # 等待店铺名称或菜单容器出现
@@ -1400,29 +1442,35 @@ async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str
         logging.info("DOM解析策略成功，返回结果")
         return dom_result
     
-    # 如果DOM解析失败，尝试API拦截作为备用方案
+    # 如果DOM解析失败，尝试API拦截作为备用方案（但设置较短超时）
     logging.info("DOM解析部分失败，尝试API拦截备用方案...")
-    api_patterns = {
-        "menu": re.compile(r"merchants/.*/catalog"),
-        "shop_info": re.compile(r"merchant-info/graphql")
-    }
     
-    api_result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
-    
-    # 合并结果：优先使用成功的DOM结果，失败的部分使用API结果
+    # 合并结果：优先使用成功的DOM结果
     final_result = {}
     
-    # 店铺信息：优先DOM，失败则用API
+    # 店铺信息：优先DOM
     if isinstance(dom_result.get("shop_info"), dict) and "error" not in dom_result.get("shop_info", {}):
         final_result["shop_info"] = dom_result["shop_info"]
+        logging.info("使用DOM解析的店铺信息")
     else:
-        final_result["shop_info"] = api_result.get("shop_info", dom_result.get("shop_info", {}))
+        # 只有在DOM完全失败时才尝试API
+        logging.info("DOM店铺信息提取失败，尝试API拦截...")
+        try:
+            api_patterns = {"shop_info": re.compile(r"merchant-info/graphql")}
+            api_result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
+            final_result["shop_info"] = api_result.get("shop_info", dom_result.get("shop_info", {}))
+        except Exception as e:
+            logging.warning(f"API拦截也失败: {str(e)}")
+            final_result["shop_info"] = dom_result.get("shop_info", {"error": "ExtractionFailed", "message": "DOM和API都无法提取店铺信息"})
     
-    # 菜单信息：优先DOM，失败则用API
+    # 菜单信息：优先DOM
     if isinstance(dom_result.get("menu"), dict) and "error" not in dom_result.get("menu", {}):
         final_result["menu"] = dom_result["menu"]
+        logging.info("使用DOM解析的菜单信息")
     else:
-        final_result["menu"] = api_result.get("menu", dom_result.get("menu", {}))
+        # 菜单信息如果DOM失败，直接返回DOM结果，不再尝试API（因为API经常超时）
+        logging.info("DOM菜单信息提取失败，跳过API拦截（避免超时）")
+        final_result["menu"] = dom_result.get("menu", {"error": "MenuExtractionFailed", "message": "DOM无法提取菜单信息，可能需要用户交互或页面结构已变化"})
     
     return final_result
 
