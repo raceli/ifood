@@ -876,6 +876,230 @@ async def _scrape_ifood_page(
                 gc.collect()
                 logging.info("已执行垃圾回收。")
 
+async def _scrape_ifood_page_dom_fallback(
+    target_url: str,
+    proxy_config: Optional[Dict[str, str]]
+) -> Dict[str, Any]:
+    """
+    DOM解析备用方案：直接解析页面内容而不依赖API拦截
+    """
+    async with async_playwright() as p:
+        browser = None
+        try:
+            # 根据环境变量获取超时配置
+            browser_timeout = int(os.getenv("BROWSER_TIMEOUT", "90")) * 1000  # 默认90秒
+            request_timeout = int(os.getenv("REQUEST_TIMEOUT", "120")) * 1000  # 默认120秒
+            
+            # 启动浏览器
+            launch_options = {
+                "headless": True,
+                "timeout": browser_timeout,
+                "args": _get_optimized_browser_args()
+            }
+            
+            if proxy_config:
+                launch_options["proxy"] = proxy_config
+                logging.info("DOM备用方案：通过代理启动浏览器...")
+            else:
+                logging.info("DOM备用方案：直接启动浏览器...")
+            
+            browser = await _launch_browser_with_fallback(p, launch_options)
+            
+            # 获取随机隐身配置
+            stealth_config = get_random_stealth_config()
+            
+            page = await browser.new_page(
+                user_agent=stealth_config.user_agent,
+                viewport={"width": stealth_config.viewport_width, "height": stealth_config.viewport_height},
+                extra_http_headers=get_realistic_headers()
+            )
+            
+            # 注入反检测脚本
+            for script in get_stealth_page_scripts():
+                await page.add_init_script(script)
+            
+            # 设置超时
+            page.set_default_navigation_timeout(request_timeout)
+            page.set_default_timeout(request_timeout)
+            
+            # 阻止不必要的资源
+            if IS_CLOUD_FUNCTION:
+                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+                await page.route("**/*.{css}", lambda route: route.abort())
+            
+            logging.info(f"DOM备用方案：导航到 {target_url}")
+            
+            # 导航到页面
+            await page.goto(target_url, wait_until='domcontentloaded', timeout=request_timeout)
+            
+            # 等待页面加载完成
+            await page.wait_for_load_state('networkidle', timeout=request_timeout)
+            
+            # 等待关键元素出现
+            try:
+                # 等待店铺名称或菜单容器出现
+                await page.wait_for_selector('[data-testid="merchant-header"], .merchant-header, h1', timeout=30000)
+            except TimeoutError:
+                logging.warning("DOM备用方案：未找到关键元素，继续尝试解析...")
+            
+            # 提取店铺信息
+            shop_info = await _extract_shop_info_from_dom(page)
+            
+            # 提取菜单信息
+            menu_info = await _extract_menu_info_from_dom(page)
+            
+            return {
+                "shop_info": shop_info,
+                "menu": menu_info
+            }
+            
+        except Exception as e:
+            logging.error(f"DOM备用方案失败: {type(e).__name__} - {str(e)}")
+            return {
+                "shop_info": {"error": "DOMFallbackError", "message": f"DOM解析失败: {str(e)}"},
+                "menu": {"error": "DOMFallbackError", "message": f"DOM解析失败: {str(e)}"}
+            }
+        finally:
+            if browser:
+                try:
+                    if browser.is_connected():
+                        contexts = browser.contexts
+                        for context in contexts:
+                            await context.close()
+                        await browser.close()
+                        logging.info("DOM备用方案：浏览器已关闭")
+                except Exception as cleanup_error:
+                    logging.warning(f"DOM备用方案：清理浏览器时出错: {cleanup_error}")
+
+async def _extract_shop_info_from_dom(page) -> Dict[str, Any]:
+    """从DOM中提取店铺信息"""
+    try:
+        shop_info = {}
+        
+        # 提取店铺名称
+        try:
+            name_element = await page.query_selector('h1, [data-testid="merchant-header"] h1, .merchant-header h1')
+            if name_element:
+                shop_info['name'] = await name_element.text_content()
+        except Exception:
+            pass
+        
+        # 提取评分
+        try:
+            rating_element = await page.query_selector('[data-testid="rating"], .rating, .star-rating')
+            if rating_element:
+                rating_text = await rating_element.text_content()
+                # 尝试提取数字
+                import re
+                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                if rating_match:
+                    shop_info['rating'] = float(rating_match.group(1))
+        except Exception:
+            pass
+        
+        # 提取配送时间
+        try:
+            delivery_element = await page.query_selector('[data-testid="delivery-time"], .delivery-time')
+            if delivery_element:
+                shop_info['delivery_time'] = await delivery_element.text_content()
+        except Exception:
+            pass
+        
+        # 提取配送费
+        try:
+            fee_element = await page.query_selector('[data-testid="delivery-fee"], .delivery-fee')
+            if fee_element:
+                shop_info['delivery_fee'] = await fee_element.text_content()
+        except Exception:
+            pass
+        
+        # 提取地址
+        try:
+            address_element = await page.query_selector('[data-testid="address"], .address')
+            if address_element:
+                shop_info['address'] = await address_element.text_content()
+        except Exception:
+            pass
+        
+        if shop_info:
+            logging.info(f"DOM解析成功提取店铺信息: {shop_info.get('name', '未知店铺')}")
+            return shop_info
+        else:
+            return {"error": "NoShopInfo", "message": "未能从DOM中提取到店铺信息"}
+            
+    except Exception as e:
+        logging.error(f"提取店铺信息失败: {str(e)}")
+        return {"error": "ShopInfoExtractionError", "message": f"提取店铺信息时出错: {str(e)}"}
+
+async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
+    """从DOM中提取菜单信息"""
+    try:
+        menu_info = {"categories": []}
+        
+        # 查找菜单分类
+        category_elements = await page.query_selector_all('[data-testid="category"], .category, .menu-category')
+        
+        for category_element in category_elements:
+            try:
+                category_info = {}
+                
+                # 提取分类名称
+                category_name_element = await category_element.query_selector('h2, h3, .category-name')
+                if category_name_element:
+                    category_info['name'] = await category_name_element.text_content()
+                
+                # 提取该分类下的商品
+                item_elements = await category_element.query_selector_all('[data-testid="menu-item"], .menu-item, .product-item')
+                category_info['items'] = []
+                
+                for item_element in item_elements:
+                    try:
+                        item_info = {}
+                        
+                        # 商品名称
+                        name_element = await item_element.query_selector('.item-name, .product-name, h4')
+                        if name_element:
+                            item_info['name'] = await name_element.text_content()
+                        
+                        # 商品价格
+                        price_element = await item_element.query_selector('.price, .item-price')
+                        if price_element:
+                            price_text = await price_element.text_content()
+                            # 清理价格文本
+                            import re
+                            price_match = re.search(r'R\$\s*(\d+[,.]?\d*)', price_text)
+                            if price_match:
+                                item_info['price'] = price_match.group(0)
+                        
+                        # 商品描述
+                        desc_element = await item_element.query_selector('.description, .item-description')
+                        if desc_element:
+                            item_info['description'] = await desc_element.text_content()
+                        
+                        if item_info.get('name'):
+                            category_info['items'].append(item_info)
+                            
+                    except Exception as e:
+                        logging.warning(f"提取菜单项时出错: {str(e)}")
+                        continue
+                
+                if category_info.get('name') and category_info.get('items'):
+                    menu_info['categories'].append(category_info)
+                    
+            except Exception as e:
+                logging.warning(f"提取菜单分类时出错: {str(e)}")
+                continue
+        
+        if menu_info['categories']:
+            logging.info(f"DOM解析成功提取菜单信息: {len(menu_info['categories'])} 个分类")
+            return menu_info
+        else:
+            return {"error": "NoMenuInfo", "message": "未能从DOM中提取到菜单信息"}
+            
+    except Exception as e:
+        logging.error(f"提取菜单信息失败: {str(e)}")
+        return {"error": "MenuExtractionError", "message": f"提取菜单信息时出错: {str(e)}"}
+
 async def get_catalog_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
     使用重构后的抓取逻辑访问iFood页面，并仅拦截菜单目录API的响应。
@@ -893,12 +1117,28 @@ async def get_shop_info_from_url(target_url: str, proxy_config: Optional[Dict[st
 async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
     使用重构后的抓取逻辑访问iFood页面，并同时拦截菜单目录API和商户信息API的响应。
+    如果API拦截失败，则使用DOM解析作为备用方案。
     """
     api_patterns = {
         "menu": re.compile(r"merchants/.*/catalog"),
         "shop_info": re.compile(r"merchant-info/graphql")
     }
-    return await _scrape_ifood_page(target_url, proxy_config, api_patterns)
+    
+    # 首先尝试API拦截策略
+    result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
+    
+    # 如果所有API都超时，尝试DOM解析备用方案
+    all_timeout = all(
+        isinstance(v, dict) and v.get("error") == "ResponseError" and "TimeoutError" in v.get("message", "")
+        for v in result.values()
+    )
+    
+    if all_timeout:
+        logging.info("API拦截超时，尝试DOM解析备用方案...")
+        fallback_result = await _scrape_ifood_page_dom_fallback(target_url, proxy_config)
+        return fallback_result
+    
+    return result
 
 # --- API 端点 ---
 
