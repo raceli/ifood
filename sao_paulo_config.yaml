@@ -1,0 +1,31 @@
+# iFood抓取API - 圣保罗机房专用配置
+# 针对 southamerica-east1 (São Paulo, Brazil) 区域优化
+
+# 🔐 认证配置
+API_TOKEN: "4a27e60b5b0464a72ae12ba3731e077cc5951b40937999e78d06fb5325524800"
+
+# 🌍 GCP配置 (圣保罗机房)
+FUNCTION_REGION: "southamerica-east1"
+USE_GCP_NATURAL_IP_ROTATION: "true"  # 启用GCP自然IP轮换
+K_SERVICE: "ifood-scraper"
+
+# 📊 日志和监控
+LOG_LEVEL: "INFO"
+
+# 🎭 防封禁策略配置
+DISABLE_PROXY: "true"  # 禁用代理，仅使用GCP自然IP轮换
+
+# 🌐 网络优化 (针对巴西网络环境)
+REQUEST_TIMEOUT: "45"  # 请求超时时间(秒)
+BROWSER_TIMEOUT: "30"  # 浏览器超时时间(秒)
+
+# 🎯 性能优化 (圣保罗机房特定)
+DISABLE_IMAGES: "true"   # 在云环境中禁用图片加载
+HEADLESS: "true"         # 无头浏览器模式
+SINGLE_PROCESS: "true"   # 单进程模式节省内存
+
+# 🕐 时区配置
+TZ: "America/Sao_Paulo"  # 巴西圣保罗时区
+
+# 🔧 Cloud Run特定配置
+PORT: "8000"

@@ -33,6 +33,7 @@ CLOUD_PROXY_PORT = os.getenv("CLOUD_PROXY_PORT", "1080")
 
 # 代理轮换策略
 PROXY_ROTATION_STRATEGY = os.getenv("PROXY_ROTATION_STRATEGY", "random")  # random, sequential, session
+DISABLE_PROXY = os.getenv("DISABLE_PROXY", "false").lower() == "true"  # 是否禁用代理
 
 # GCP Cloud Function/Cloud Run 特定配置
 IS_CLOUD_FUNCTION = os.getenv("FUNCTION_TARGET") is not None
@@ -213,13 +214,19 @@ def get_gcp_natural_ip_config() -> Optional[Dict[str, str]]:
 def get_random_proxy_config() -> Optional[Dict[str, str]]:
     """
     增强的智能代理选择策略：
-    1. 在Cloud Function环境中，优先使用GCP自然IP轮换
-    2. 使用智能代理管理器选择最佳代理
-    3. 如果配置了云代理，使用云代理
-    4. 最后直接连接
+    1. 如果禁用代理，直接返回None
+    2. 在Cloud Function环境中，优先使用GCP自然IP轮换
+    3. 使用智能代理管理器选择最佳代理
+    4. 如果配置了云代理，使用云代理
+    5. 最后直接连接
     
     返回Playwright格式的代理配置字典。
     """
+    # 0. 检查是否禁用代理
+    if DISABLE_PROXY:
+        logging.info("代理功能已禁用，将使用GCP自然IP轮换")
+        return None
+    
     # 1. 在Cloud Function环境中，优先使用GCP自然IP轮换
     if IS_CLOUD_FUNCTION and USE_GCP_NATURAL_IP_ROTATION:
         logging.info("在Cloud Function环境中，使用GCP自然IP轮换")
@@ -910,10 +917,11 @@ async def health_check():
                 "cpu_percent": cpu_percent,
                 "disk_usage_percent": psutil.disk_usage('/').percent
             },
-            "proxy": {
-                "cloud_proxy_configured": bool(CLOUD_PROXY_HOST),
-                "local_proxy_file_exists": os.path.exists(PROXY_FILE)
-            }
+                    "proxy": {
+            "disabled": DISABLE_PROXY,
+            "cloud_proxy_configured": bool(CLOUD_PROXY_HOST) if not DISABLE_PROXY else False,
+            "local_proxy_file_exists": os.path.exists(PROXY_FILE) if not DISABLE_PROXY else False
+        }
         }
         
         return health_info
@@ -946,7 +954,7 @@ async def status_info(token: str = Depends(verify_token)):
         "timestamp": datetime.now().isoformat(),
         "uptime": asyncio.get_event_loop().time(),
         "proxy_config": proxy_info,
-        "proxy_manager_stats": proxy_stats,
+        "proxy_manager_stats": proxy_stats if not DISABLE_PROXY else {"disabled": True, "message": "代理功能已禁用"},
         "environment": {
             "is_cloud_function": IS_CLOUD_FUNCTION,
             "gcp_region": GCP_REGION if IS_CLOUD_FUNCTION else None,
