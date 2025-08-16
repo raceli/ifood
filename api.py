@@ -1699,6 +1699,69 @@ async def test_endpoint(token: str = Depends(verify_token)):
     
     return test_result
 
+@app.get("/debug/files", summary="获取调试文件列表", status_code=200)
+async def get_debug_files(token: str = Depends(verify_token)):
+    """
+    获取可用的调试文件列表
+    """
+    import os
+    import glob
+    
+    debug_files = []
+    debug_dir = "/tmp/"
+    
+    # 查找调试文件
+    patterns = [
+        "page_*.png",
+        "page_*.html",
+        "*.png",
+        "*.html"
+    ]
+    
+    for pattern in patterns:
+        files = glob.glob(os.path.join(debug_dir, pattern))
+        for file_path in files:
+            if os.path.exists(file_path):
+                file_info = {
+                    "name": os.path.basename(file_path),
+                    "path": file_path,
+                    "size": os.path.getsize(file_path),
+                    "modified": os.path.getmtime(file_path)
+                }
+                debug_files.append(file_info)
+    
+    return {
+        "debug_files": debug_files,
+        "total_files": len(debug_files),
+        "debug_directory": debug_dir
+    }
+
+@app.get("/debug/download/{filename}", summary="下载调试文件")
+async def download_debug_file(filename: str, token: str = Depends(verify_token)):
+    """
+    下载指定的调试文件
+    """
+    import os
+    from fastapi.responses import FileResponse
+    
+    # 安全检查：只允许下载特定类型的文件
+    allowed_extensions = ['.png', '.html', '.txt', '.log']
+    file_ext = os.path.splitext(filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="不允许下载此类型的文件")
+    
+    file_path = os.path.join("/tmp/", filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type='application/octet-stream'
+    )
+
 @app.post("/get_menu", summary="获取iFood店铺菜单", status_code=200)
 async def get_menu_endpoint(request: StoreRequest, token: str = Depends(verify_token)):
     """
