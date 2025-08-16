@@ -66,9 +66,6 @@ def get_stealth_browser_args() -> List[str]:
         "--disable-domain-reliability",
         "--disable-features=AudioServiceOutOfProcess",
         
-        # 自定义用户数据目录（避免检测）
-        f"--user-data-dir=/tmp/chrome-user-data-{random.randint(10000, 99999)}",
-        
         # GPU设置
         "--disable-gpu",
         "--disable-software-rasterizer",
