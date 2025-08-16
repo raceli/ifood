@@ -1,0 +1,28 @@
+# 兼容性requirements.txt - 解决依赖版本冲突
+# 使用固定版本号确保兼容性
+
+# 核心依赖
+playwright==1.40.0
+beautifulsoup4==4.12.2
+fastapi==0.115.0
+uvicorn[standard]==0.24.0
+fastapi-security==0.5.0
+fastapi-cors==0.0.6
+fake-useragent==1.4.0
+flask==3.0.0
+psutil==5.9.5
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# 可选：如果需要更严格的版本控制，可以使用以下版本
+# playwright==1.40.0
+# beautifulsoup4==4.12.2
+# fastapi==0.115.0
+# uvicorn[standard]==0.24.0
+# fastapi-security==0.5.0
+# fastapi-cors==0.0.6
+# fake-useragent==1.4.0
+# flask==3.0.0
+# psutil==5.9.5
+# pydantic==2.5.0
+# python-multipart==0.0.6
