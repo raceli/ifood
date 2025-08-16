@@ -832,10 +832,30 @@ async def _scrape_ifood_page(
             page.set_default_navigation_timeout(request_timeout)  # 使用环境变量配置的导航超时
             page.set_default_timeout(request_timeout)  # 使用环境变量配置的默认超时
             
-            # 可选：如果不需要图片，可以阻止图片请求以提高性能
-            if IS_CLOUD_FUNCTION:
-                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-                await page.route("**/*.{css}", lambda route: route.abort())  # 可选：阻止CSS以提高速度
+            # 拦截并修改API请求，强制添加地理位置参数
+            async def handle_api_request(route):
+                request = route.request
+                url = request.url
+                
+                # 检查是否是需要阻断的资源（图片、CSS等）
+                if IS_CLOUD_FUNCTION and any(ext in url.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.css']):
+                    await route.abort()
+                    return
+                
+                # 如果是iFood的API请求，并且缺少地理位置参数，则修改URL
+                if ("cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url) and ("latitude=&" in url or "longitude=&" in url):
+                    # 修改URL，添加圣保罗坐标
+                    modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
+                    logging.info(f"🔧 修改API请求URL: {url} -> {modified_url}")
+                    
+                    # 继续请求但使用修改后的URL
+                    await route.continue_(url=modified_url)
+                else:
+                    # 正常继续请求
+                    await route.continue_()
+            
+            # 应用统一的请求拦截器
+            await page.route("**/*", handle_api_request)
             
             # 设置更宽松的网络策略，减少超时
             await page.set_extra_http_headers({
@@ -1104,10 +1124,30 @@ async def _scrape_ifood_page_dom_fallback(
             page.set_default_navigation_timeout(request_timeout)
             page.set_default_timeout(request_timeout)
             
-            # 阻止不必要的资源
-            if IS_CLOUD_FUNCTION:
-                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-                await page.route("**/*.{css}", lambda route: route.abort())
+            # 拦截并修改API请求，强制添加地理位置参数（DOM备用方案）
+            async def handle_api_request_dom(route):
+                request = route.request
+                url = request.url
+                
+                # 检查是否是需要阻断的资源（图片、CSS等）
+                if IS_CLOUD_FUNCTION and any(ext in url.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.css']):
+                    await route.abort()
+                    return
+                
+                # 如果是iFood的API请求，并且缺少地理位置参数，则修改URL
+                if ("cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url) and ("latitude=&" in url or "longitude=&" in url):
+                    # 修改URL，添加圣保罗坐标
+                    modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
+                    logging.info(f"🔧 DOM备用方案：修改API请求URL: {url} -> {modified_url}")
+                    
+                    # 继续请求但使用修改后的URL
+                    await route.continue_(url=modified_url)
+                else:
+                    # 正常继续请求
+                    await route.continue_()
+            
+            # 应用统一的请求拦截器（DOM备用方案）
+            await page.route("**/*", handle_api_request_dom)
             
             logging.info(f"DOM备用方案：导航到 {target_url}")
             
