@@ -828,7 +828,15 @@ async def _scrape_ifood_page(
             # 1. 检查导航任务本身是否失败
             navigation_result = all_results[-1]
             if isinstance(navigation_result, Exception):
-                logging.error(f"页面导航或主任务失败: {type(navigation_result).__name__} - {navigation_result}")
+                logging.error(f"页面导航失败: {type(navigation_result).__name__} - {navigation_result}")
+            else:
+                # 检查页面是否成功打开
+                if hasattr(navigation_result, 'ok') and navigation_result.ok:
+                    logging.info(f"✅ 页面成功打开: {target_url} [状态: {navigation_result.status}]")
+                elif hasattr(navigation_result, 'status'):
+                    logging.warning(f"⚠️ 页面打开但返回异常状态: {target_url} [状态: {navigation_result.status}]")
+                else:
+                    logging.info(f"✅ 页面导航完成: {target_url}")
 
             # 2. 检查各个API响应的等待任务是否失败
             response_results = all_results[:-1]
@@ -1000,7 +1008,19 @@ async def _scrape_ifood_page_dom_fallback(
             logging.info(f"DOM备用方案：导航到 {target_url}")
             
             # 导航到页面 - 只等待导航开始，不等待DOM加载
-            await page.goto(target_url, wait_until='commit', timeout=request_timeout)
+            try:
+                navigation_response = await page.goto(target_url, wait_until='commit', timeout=request_timeout)
+                
+                # 检查页面是否成功打开
+                if navigation_response and navigation_response.ok:
+                    logging.info(f"✅ DOM备用方案：页面成功打开: {target_url} [状态: {navigation_response.status}]")
+                elif navigation_response:
+                    logging.warning(f"⚠️ DOM备用方案：页面打开但返回异常状态: {target_url} [状态: {navigation_response.status}]")
+                else:
+                    logging.warning(f"⚠️ DOM备用方案：页面导航完成但无响应信息: {target_url}")
+            except Exception as nav_error:
+                logging.error(f"❌ DOM备用方案：页面导航失败: {target_url} - {type(nav_error).__name__}: {nav_error}")
+                raise nav_error
             
             # 不等待页面加载完成，直接进行API拦截
             
@@ -1694,7 +1714,7 @@ async def get_catalog_from_url(target_url: str, proxy_config: Optional[Dict[str,
     """
     使用重构后的抓取逻辑访问iFood页面，并仅拦截菜单目录API的响应。
     """
-    api_patterns = {"menu": re.compile(r"cw-marketplace\.ifood\.com\.br/v1/bm/merchants/.*/catalog")}
+    api_patterns = {"menu": re.compile(r"merchants/.*/catalog")}
     return await _scrape_ifood_page(target_url, proxy_config, api_patterns)
 
 async def get_shop_info_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
@@ -1713,7 +1733,7 @@ async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str
     # 同时拦截店铺信息和菜单API
     api_patterns = {
         "shop_info": re.compile(r"merchant-info/graphql"),
-        "menu": re.compile(r"cw-marketplace\.ifood\.com\.br/v1/bm/merchants/.*/catalog")
+        "menu": re.compile(r"merchants/.*/catalog")
     }
     
     try:
