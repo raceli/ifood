@@ -1008,75 +1008,133 @@ async def _scrape_ifood_page_dom_fallback(
             
             # 不等待页面加载完成，直接进行API拦截
             
+            # 等待页面基本加载完成
+            await page.wait_for_timeout(3000)
+            
             # 检查页面内容，看是否需要地址输入
             try:
                 page_content = await page.content()
                 
                 # 检查页面是否包含地址相关的文本
-                if "Escolha um endereço" in page_content or "Informe seu endereço" in page_content:
+                address_indicators = [
+                    "Escolha um endereço", "Informe seu endereço", 
+                    "Você verá apenas os restaurantes", "entregam onde você está"
+                ]
+                
+                needs_address = any(indicator in page_content for indicator in address_indicators)
+                
+                if needs_address:
                     logging.info("DOM备用方案：检测到需要地址的页面内容，尝试处理地址输入...")
                     
                     # 尝试查找并点击地址相关的按钮或输入框
                     address_triggers = [
                         'button:has-text("Informe seu endereço")',
                         'button:has-text("Escolha um endereço")',
+                        'button:has-text("Ignorar")',
+                        'button:has-text("Informar")',
                         'div:has-text("Informe seu endereço")',
                         'div:has-text("Escolha um endereço")',
                         'input[placeholder*="endereço"]',
                         'input[placeholder*="CEP"]',
+                        'input[placeholder*="address"]',
                         'input[type="text"]',
                         '[data-testid="address-input"]',
-                        '.address-input'
+                        '.address-input',
+                        '[data-testid="location-input"]',
+                        '.location-input'
                     ]
                     
                     address_triggered = False
-                    for selector in address_triggers:
-                        try:
-                            elements = await page.query_selector_all(selector)
-                            for element in elements:
-                                try:
-                                    # 如果是输入框，直接输入
-                                    tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
-                                    if tag_name == 'input':
-                                        await element.fill("Rua Augusta, 123, São Paulo, SP")
-                                        await page.wait_for_timeout(1000)
-                                        await element.press('Enter')
-                                        await page.wait_for_timeout(3000)
-                                        logging.info("DOM备用方案：已在输入框中输入地址")
-                                        address_triggered = True
-                                        break
-                                    else:
-                                        # 如果是按钮或div，点击它
-                                        await element.click()
-                                        await page.wait_for_timeout(2000)
-                                        logging.info("DOM备用方案：已点击地址相关元素")
-                                        
-                                        # 点击后可能出现输入框，再次尝试输入
-                                        new_inputs = await page.query_selector_all('input[type="text"], input[placeholder*="endereço"], input[placeholder*="CEP"]')
-                                        for input_elem in new_inputs:
-                                            try:
-                                                await input_elem.fill("Rua Augusta, 123, São Paulo, SP")
-                                                await page.wait_for_timeout(1000)
-                                                await input_elem.press('Enter')
-                                                await page.wait_for_timeout(3000)
-                                                logging.info("DOM备用方案：已在弹出的输入框中输入地址")
-                                                address_triggered = True
-                                                break
-                                            except Exception:
-                                                continue
-                                        
-                                        if address_triggered:
-                                            break
-                                except Exception as e:
-                                    logging.warning(f"处理地址元素时出错: {str(e)}")
-                                    continue
+                    address_attempts = 0
+                    
+                    # 首先尝试点击"Ignorar"按钮（如果存在）
+                    try:
+                        ignore_button = await page.query_selector('button:has-text("Ignorar")')
+                        if ignore_button:
+                            await ignore_button.click()
+                            await page.wait_for_timeout(2000)
+                            logging.info("DOM备用方案：已点击'Ignorar'按钮，尝试跳过地址输入")
                             
-                            if address_triggered:
+                            # 检查是否成功跳过
+                            new_content = await page.content()
+                            if not any(indicator in new_content for indicator in address_indicators):
+                                address_triggered = True
+                                logging.info("DOM备用方案：成功跳过地址输入")
+                    except Exception as e:
+                        logging.info(f"尝试点击'Ignorar'按钮时出错: {str(e)}")
+                    
+                    # 如果跳过失败，尝试输入地址
+                    if not address_triggered:
+                        for selector in address_triggers:
+                            if address_attempts >= 3:  # 限制尝试次数
                                 break
                                 
-                        except Exception as e:
-                            logging.warning(f"查找地址元素时出错 [{selector}]: {str(e)}")
-                            continue
+                            try:
+                                elements = await page.query_selector_all(selector)
+                                for element in elements:
+                                    try:
+                                        # 如果是输入框，直接输入
+                                        tag_name = await element.evaluate('el => el.tagName.toLowerCase()')
+                                        if tag_name == 'input':
+                                            # 尝试多个地址格式
+                                            test_addresses = [
+                                                "Rua Augusta, 123, São Paulo, SP",
+                                                "Av. Paulista, 1000, São Paulo, SP",
+                                                "Rua Oscar Freire, 456, São Paulo, SP"
+                                            ]
+                                            
+                                            for address in test_addresses:
+                                                try:
+                                                    await element.fill(address)
+                                                    await page.wait_for_timeout(1000)
+                                                    await element.press('Enter')
+                                                    await page.wait_for_timeout(3000)
+                                                    
+                                                    # 检查是否成功
+                                                    current_content = await page.content()
+                                                    if not any(indicator in current_content for indicator in address_indicators):
+                                                        logging.info(f"DOM备用方案：成功输入地址: {address}")
+                                                        address_triggered = True
+                                                        break
+                                                except Exception:
+                                                    continue
+                                            
+                                            if address_triggered:
+                                                break
+                                        else:
+                                            # 如果是按钮或div，点击它
+                                            await element.click()
+                                            await page.wait_for_timeout(2000)
+                                            logging.info("DOM备用方案：已点击地址相关元素")
+                                            
+                                            # 点击后可能出现输入框，再次尝试输入
+                                            new_inputs = await page.query_selector_all('input[type="text"], input[placeholder*="endereço"], input[placeholder*="CEP"]')
+                                            for input_elem in new_inputs:
+                                                try:
+                                                    await input_elem.fill("Rua Augusta, 123, São Paulo, SP")
+                                                    await page.wait_for_timeout(1000)
+                                                    await input_elem.press('Enter')
+                                                    await page.wait_for_timeout(3000)
+                                                    logging.info("DOM备用方案：已在弹出的输入框中输入地址")
+                                                    address_triggered = True
+                                                    break
+                                                except Exception:
+                                                    continue
+                                            
+                                            if address_triggered:
+                                                break
+                                    except Exception as e:
+                                        logging.warning(f"处理地址元素时出错: {str(e)}")
+                                        continue
+                                
+                                if address_triggered:
+                                    break
+                                    
+                            except Exception as e:
+                                logging.warning(f"查找地址元素时出错 [{selector}]: {str(e)}")
+                                continue
+                            
+                            address_attempts += 1
                     
                     if address_triggered:
                         # 等待页面更新 - 增加等待时间
@@ -1085,13 +1143,19 @@ async def _scrape_ifood_page_dom_fallback(
                         
                         # 等待搜索完成 - 检查页面是否还在搜索状态
                         search_complete = False
-                        for attempt in range(10):  # 最多等待20秒
+                        for attempt in range(15):  # 最多等待30秒
                             try:
                                 page_text = await page.text_content('body')
                                 if page_text and 'Buscando por' not in page_text:
-                                    search_complete = True
-                                    logging.info(f"DOM备用方案：搜索完成 (尝试 {attempt + 1})")
-                                    break
+                                    # 检查是否出现了菜单内容
+                                    if 'menu' in page_text.lower() or 'cardápio' in page_text.lower() or 'categoria' in page_text.lower():
+                                        search_complete = True
+                                        logging.info(f"DOM备用方案：搜索完成，检测到菜单内容 (尝试 {attempt + 1})")
+                                        break
+                                    else:
+                                        logging.info(f"DOM备用方案：搜索完成，但未检测到菜单内容 (尝试 {attempt + 1})")
+                                        # 继续等待，可能菜单还在加载
+                                        await page.wait_for_timeout(2000)
                                 else:
                                     logging.info(f"DOM备用方案：仍在搜索中... (尝试 {attempt + 1})")
                                     await page.wait_for_timeout(2000)
@@ -1101,8 +1165,8 @@ async def _scrape_ifood_page_dom_fallback(
                         if not search_complete:
                             logging.warning("DOM备用方案：搜索可能未完成，继续处理...")
                         
-                        # 不等待网络空闲，直接继续处理
-                        await page.wait_for_timeout(2000)  # 给页面一点时间响应
+                        # 给页面更多时间加载菜单内容
+                        await page.wait_for_timeout(5000)  # 增加到5秒
                         logging.info("DOM备用方案：地址输入完成，继续处理")
                         
                         # 调试：保存页面截图（仅在云环境中）
@@ -1332,6 +1396,23 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
         # 等待菜单加载
         await page.wait_for_timeout(2000)  # 等待2秒让菜单加载
         
+        # 调试：记录页面基本信息
+        try:
+            page_title = await page.title()
+            logging.info(f"菜单提取：页面标题: {page_title}")
+            
+            # 检查页面是否包含地址相关提示
+            page_text = await page.text_content('body')
+            if page_text:
+                if "Escolha um endereço" in page_text or "Informe seu endereço" in page_text:
+                    logging.warning("菜单提取：页面仍显示地址输入提示，可能地址输入未成功")
+                if "Buscando por" in page_text:
+                    logging.info("菜单提取：页面正在搜索中...")
+                if "menu" in page_text.lower() or "cardápio" in page_text.lower():
+                    logging.info("菜单提取：页面包含菜单相关内容")
+        except Exception as e:
+            logging.warning(f"菜单提取：获取页面基本信息时出错: {str(e)}")
+        
         # 查找菜单分类 - 使用更广泛的选择器
         category_selectors = [
             '[data-testid="category"]',
@@ -1344,7 +1425,12 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
             'div[class*="menu-section"]',
             'div[class*="product-section"]',
             '.menu-group',
-            '.product-group'
+            '.product-group',
+            '[data-testid="menu-section"]',
+            '[data-testid="product-section"]',
+            '.restaurant-menu',
+            '.store-menu',
+            '.merchant-menu'
         ]
         
         category_elements = []
@@ -1363,13 +1449,21 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
             logging.info("未找到分类，尝试直接查找商品...")
             item_selectors = [
                 '[data-testid="menu-item"]',
+                '[data-testid="product-item"]',
+                '[data-testid="dish-item"]',
                 '.menu-item',
                 '.product-item',
                 '.dish-item',
+                '.food-item',
                 'div[class*="product"]',
                 'div[class*="item"]',
+                'div[class*="dish"]',
                 'article[class*="product"]',
-                'article[class*="item"]'
+                'article[class*="item"]',
+                'article[class*="dish"]',
+                'li[class*="product"]',
+                'li[class*="item"]',
+                'li[class*="dish"]'
             ]
             
             all_items = []
@@ -1441,13 +1535,21 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
                     # 提取该分类下的商品
                     item_selectors = [
                         '[data-testid="menu-item"]',
+                        '[data-testid="product-item"]',
+                        '[data-testid="dish-item"]',
                         '.menu-item',
                         '.product-item',
                         '.dish-item',
+                        '.food-item',
                         'div[class*="product"]',
                         'div[class*="item"]',
+                        'div[class*="dish"]',
                         'article[class*="product"]',
-                        'article[class*="item"]'
+                        'article[class*="item"]',
+                        'article[class*="dish"]',
+                        'li[class*="product"]',
+                        'li[class*="item"]',
+                        'li[class*="dish"]'
                     ]
                     
                     category_info['items'] = []
@@ -1608,55 +1710,46 @@ async def get_shop_info_from_url(target_url: str, proxy_config: Optional[Dict[st
 
 async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
-    优先使用DOM解析策略访问iFood页面，如果失败则回退到API拦截。
+    直接使用API拦截策略获取店铺信息和菜单数据，跳过DOM解析。
     """
-    # 首先尝试DOM解析策略（更可靠）
-    logging.info("使用DOM解析策略作为主要方案...")
-    dom_result = await _scrape_ifood_page_dom_fallback(target_url, proxy_config)
+    logging.info("使用API拦截策略获取店铺和菜单信息...")
     
-    # 检查DOM解析是否成功
-    dom_success = (
-        isinstance(dom_result.get("shop_info"), dict) and 
-        "error" not in dom_result.get("shop_info", {}) and
-        isinstance(dom_result.get("menu"), dict) and 
-        "error" not in dom_result.get("menu", {})
-    )
+    # 同时拦截店铺信息和菜单API
+    api_patterns = {
+        "shop_info": re.compile(r"merchant-info/graphql"),
+        "menu": re.compile(r"merchants/.*/catalog")
+    }
     
-    if dom_success:
-        logging.info("DOM解析策略成功，返回结果")
-        return dom_result
-    
-    # 如果DOM解析失败，尝试API拦截作为备用方案（但设置较短超时）
-    logging.info("DOM解析部分失败，尝试API拦截备用方案...")
-    
-    # 合并结果：优先使用成功的DOM结果
-    final_result = {}
-    
-    # 店铺信息：优先DOM
-    if isinstance(dom_result.get("shop_info"), dict) and "error" not in dom_result.get("shop_info", {}):
-        final_result["shop_info"] = dom_result["shop_info"]
-        logging.info("使用DOM解析的店铺信息")
-    else:
-        # 只有在DOM完全失败时才尝试API
-        logging.info("DOM店铺信息提取失败，尝试API拦截...")
-        try:
-            api_patterns = {"shop_info": re.compile(r"merchant-info/graphql")}
-            api_result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
-            final_result["shop_info"] = api_result.get("shop_info", dom_result.get("shop_info", {}))
-        except Exception as e:
-            logging.warning(f"API拦截也失败: {str(e)}")
-            final_result["shop_info"] = dom_result.get("shop_info", {"error": "ExtractionFailed", "message": "DOM和API都无法提取店铺信息"})
-    
-    # 菜单信息：优先DOM
-    if isinstance(dom_result.get("menu"), dict) and "error" not in dom_result.get("menu", {}):
-        final_result["menu"] = dom_result["menu"]
-        logging.info("使用DOM解析的菜单信息")
-    else:
-        # 菜单信息如果DOM失败，直接返回DOM结果，不再尝试API（因为API经常超时）
-        logging.info("DOM菜单信息提取失败，跳过API拦截（避免超时）")
-        final_result["menu"] = dom_result.get("menu", {"error": "MenuExtractionFailed", "message": "DOM无法提取菜单信息，可能需要用户交互或页面结构已变化"})
-    
-    return final_result
+    try:
+        # 使用API拦截获取数据
+        api_result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
+        
+        # 检查API拦截结果
+        shop_info = api_result.get("shop_info", {})
+        menu = api_result.get("menu", {})
+        
+        # 记录结果状态
+        if isinstance(shop_info, dict) and "error" not in shop_info:
+            logging.info("API拦截成功获取店铺信息")
+        else:
+            logging.warning("API拦截未能获取店铺信息")
+            
+        if isinstance(menu, dict) and "error" not in menu:
+            logging.info("API拦截成功获取菜单信息")
+        else:
+            logging.warning("API拦截未能获取菜单信息")
+        
+        return {
+            "shop_info": shop_info,
+            "menu": menu
+        }
+        
+    except Exception as e:
+        logging.error(f"API拦截过程中发生错误: {str(e)}")
+        return {
+            "shop_info": {"error": "APIInterceptionError", "message": f"API拦截失败: {str(e)}"},
+            "menu": {"error": "APIInterceptionError", "message": f"API拦截失败: {str(e)}"}
+        }
 
 # --- API 端点 ---
 
