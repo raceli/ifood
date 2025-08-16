@@ -16,8 +16,8 @@ LOG_LEVEL: "INFO"
 DISABLE_PROXY: "true"  # 禁用代理，仅使用GCP自然IP轮换
 
 # 🌐 网络优化 (针对巴西网络环境)
-REQUEST_TIMEOUT: "45"  # 请求超时时间(秒)
-BROWSER_TIMEOUT: "30"  # 浏览器超时时间(秒)
+REQUEST_TIMEOUT: "120"  # 请求超时时间(秒) - 增加超时时间
+BROWSER_TIMEOUT: "90"   # 浏览器超时时间(秒) - 增加超时时间
 
 # 🎯 性能优化 (圣保罗机房特定)
 DISABLE_IMAGES: "true"   # 在云环境中禁用图片加载

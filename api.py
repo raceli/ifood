@@ -687,10 +687,14 @@ async def _scrape_ifood_page(
     async with async_playwright() as p:
         browser = None
         try:
+            # 根据环境变量获取超时配置
+            browser_timeout = int(os.getenv("BROWSER_TIMEOUT", "60")) * 1000  # 默认60秒
+            request_timeout = int(os.getenv("REQUEST_TIMEOUT", "90")) * 1000  # 默认90秒
+            
             # 根据 Browserless 建议，为 Cloud Function 优化启动配置
             launch_options = {
                 "headless": True,
-                "timeout": 30000,  # 30秒启动超时
+                "timeout": browser_timeout,  # 使用环境变量配置的启动超时
                 "args": _get_optimized_browser_args()
             }
             
@@ -724,13 +728,24 @@ async def _scrape_ifood_page(
                 await page.add_init_script(script)
             
             # 设置页面超时和错误处理
-            page.set_default_navigation_timeout(45000)  # 45秒导航超时
-            page.set_default_timeout(30000)  # 30秒默认超时
+            page.set_default_navigation_timeout(request_timeout)  # 使用环境变量配置的导航超时
+            page.set_default_timeout(request_timeout)  # 使用环境变量配置的默认超时
             
             # 可选：如果不需要图片，可以阻止图片请求以提高性能
             if IS_CLOUD_FUNCTION:
                 await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
                 await page.route("**/*.{css}", lambda route: route.abort())  # 可选：阻止CSS以提高速度
+            
+            # 设置更宽松的网络策略，减少超时
+            await page.set_extra_http_headers({
+                'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            })
+            
+            # 设置更宽松的等待策略
+            await page.wait_for_load_state('domcontentloaded', timeout=request_timeout)
             
             logging.info(f"正在导航到: {target_url}")
 
@@ -742,14 +757,14 @@ async def _scrape_ifood_page(
                 page.wait_for_event(
                     "response",
                     lambda res, p=pattern: p.search(res.url),
-                    timeout=35000  # 增加超时时间
+                    timeout=request_timeout  # 使用环境变量配置的超时时间
                 )
                 for pattern in api_patterns.values()
             ]
             navigation_awaitable = page.goto(
                 target_url, 
                 wait_until='domcontentloaded', 
-                timeout=30000  # 增加导航超时时间
+                timeout=request_timeout  # 使用环境变量配置的导航超时时间
             )
             
             all_results = await asyncio.gather(
