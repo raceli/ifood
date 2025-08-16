@@ -744,15 +744,12 @@ async def _scrape_ifood_page(
                 'Pragma': 'no-cache'
             })
             
-            # 设置更宽松的等待策略
-            await page.wait_for_load_state('domcontentloaded', timeout=request_timeout)
-            
             logging.info(f"正在导航到: {target_url}")
 
             # 记录开始时间（用于计算响应时间）
             start_time = time.time()
 
-            # 设置更合理的超时时间
+            # 设置更合理的超时时间 - 完全依赖API拦截，不等待DOM
             response_awaitables = [
                 page.wait_for_event(
                     "response",
@@ -763,7 +760,7 @@ async def _scrape_ifood_page(
             ]
             navigation_awaitable = page.goto(
                 target_url, 
-                wait_until='domcontentloaded', 
+                wait_until='commit',  # 只等待导航开始，不等待DOM加载
                 timeout=request_timeout  # 使用环境变量配置的导航超时时间
             )
             
@@ -929,11 +926,10 @@ async def _scrape_ifood_page_dom_fallback(
             
             logging.info(f"DOM备用方案：导航到 {target_url}")
             
-            # 导航到页面
-            await page.goto(target_url, wait_until='domcontentloaded', timeout=request_timeout)
+            # 导航到页面 - 只等待导航开始，不等待DOM加载
+            await page.goto(target_url, wait_until='commit', timeout=request_timeout)
             
-            # 等待页面加载完成
-            await page.wait_for_load_state('networkidle', timeout=request_timeout)
+            # 不等待页面加载完成，直接进行API拦截
             
             # 检查页面内容，看是否需要地址输入
             try:
@@ -1028,8 +1024,9 @@ async def _scrape_ifood_page_dom_fallback(
                         if not search_complete:
                             logging.warning("DOM备用方案：搜索可能未完成，继续处理...")
                         
-                        await page.wait_for_load_state('networkidle', timeout=30000)
-                        logging.info("DOM备用方案：地址输入完成，页面已更新")
+                        # 不等待网络空闲，直接继续处理
+                        await page.wait_for_timeout(2000)  # 给页面一点时间响应
+                        logging.info("DOM备用方案：地址输入完成，继续处理")
                         
                         # 调试：保存页面截图（仅在云环境中）
                         if IS_CLOUD_FUNCTION or IS_CLOUD_RUN:
