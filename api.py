@@ -782,6 +782,52 @@ async def _scrape_ifood_page(
             for script in get_stealth_page_scripts():
                 await page.add_init_script(script)
             
+            # 注入地理位置模拟脚本
+            geolocation_script = """
+                // 覆盖地理位置API，强制返回圣保罗坐标
+                Object.defineProperty(navigator.geolocation, 'getCurrentPosition', {
+                    value: function(success, error, options) {
+                        const position = {
+                            coords: {
+                                latitude: -23.5505,
+                                longitude: -46.6333,
+                                accuracy: 10,
+                                altitude: null,
+                                altitudeAccuracy: null,
+                                heading: null,
+                                speed: null
+                            },
+                            timestamp: Date.now()
+                        };
+                        if (success) {
+                            success(position);
+                        }
+                    }
+                });
+                
+                Object.defineProperty(navigator.geolocation, 'watchPosition', {
+                    value: function(success, error, options) {
+                        const position = {
+                            coords: {
+                                latitude: -23.5505,
+                                longitude: -46.6333,
+                                accuracy: 10,
+                                altitude: null,
+                                altitudeAccuracy: null,
+                                heading: null,
+                                speed: null
+                            },
+                            timestamp: Date.now()
+                        };
+                        if (success) {
+                            success(position);
+                        }
+                        return 1; // 返回watchId
+                    }
+                });
+            """
+            await page.add_init_script(geolocation_script)
+            
             # 设置页面超时和错误处理
             page.set_default_navigation_timeout(request_timeout)  # 使用环境变量配置的导航超时
             page.set_default_timeout(request_timeout)  # 使用环境变量配置的默认超时
@@ -1007,6 +1053,52 @@ async def _scrape_ifood_page_dom_fallback(
             # 注入反检测脚本
             for script in get_stealth_page_scripts():
                 await page.add_init_script(script)
+            
+            # 注入地理位置模拟脚本（DOM备用方案）
+            geolocation_script = """
+                // 覆盖地理位置API，强制返回圣保罗坐标
+                Object.defineProperty(navigator.geolocation, 'getCurrentPosition', {
+                    value: function(success, error, options) {
+                        const position = {
+                            coords: {
+                                latitude: -23.5505,
+                                longitude: -46.6333,
+                                accuracy: 10,
+                                altitude: null,
+                                altitudeAccuracy: null,
+                                heading: null,
+                                speed: null
+                            },
+                            timestamp: Date.now()
+                        };
+                        if (success) {
+                            success(position);
+                        }
+                    }
+                });
+                
+                Object.defineProperty(navigator.geolocation, 'watchPosition', {
+                    value: function(success, error, options) {
+                        const position = {
+                            coords: {
+                                latitude: -23.5505,
+                                longitude: -46.6333,
+                                accuracy: 10,
+                                altitude: null,
+                                altitudeAccuracy: null,
+                                heading: null,
+                                speed: null
+                            },
+                            timestamp: Date.now()
+                        };
+                        if (success) {
+                            success(position);
+                        }
+                        return 1; // 返回watchId
+                    }
+                });
+            """
+            await page.add_init_script(geolocation_script)
             
             # 设置超时
             page.set_default_navigation_timeout(request_timeout)
