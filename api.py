@@ -227,29 +227,25 @@ def get_random_proxy_config() -> Optional[Dict[str, str]]:
         logging.info("代理功能已禁用，将使用GCP自然IP轮换")
         return None
     
-    # 1. 在Cloud Function环境中，优先使用GCP自然IP轮换
-    if IS_CLOUD_FUNCTION and USE_GCP_NATURAL_IP_ROTATION:
-        logging.info("在Cloud Function环境中，使用GCP自然IP轮换")
+    # 1. 在Cloud Function环境中，强制使用GCP自然IP轮换，不使用任何代理
+    if IS_CLOUD_FUNCTION:
+        logging.info("在Cloud Function环境中，强制使用GCP自然IP轮换，不使用代理")
         return None  # 返回None表示不使用代理，让GCP自动分配IP
     
-    # 2. 优先使用智能代理管理器
+    # 2. 优先使用智能代理管理器（仅在非Cloud Function环境中）
     smart_proxy = get_smart_proxy_config()
     if smart_proxy:
         logging.info(f"使用智能代理管理器选择的代理: {smart_proxy.get('server', 'unknown')}")
         return smart_proxy
     
-    # 3. 回退到云代理
+    # 3. 回退到云代理（仅在非Cloud Function环境中）
     cloud_proxy = get_cloud_proxy_config()
     if cloud_proxy:
         logging.info("使用云代理配置")
         return cloud_proxy
     
     # 4. 最终回退
-    if IS_CLOUD_FUNCTION:
-        logging.info("在Cloud Function环境中，将使用GCP分配的动态IP")
-    else:
-        logging.warning("未找到可用的代理配置，将直接连接。")
-    
+    logging.info("未找到可用的代理配置，将直接连接。")
     return None
 
 def clean_url(url: str) -> str:
