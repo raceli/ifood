@@ -976,53 +976,149 @@ async def _extract_shop_info_from_dom(page) -> Dict[str, Any]:
     try:
         shop_info = {}
         
-        # 提取店铺名称
-        try:
-            name_element = await page.query_selector('h1, [data-testid="merchant-header"] h1, .merchant-header h1')
-            if name_element:
-                shop_info['name'] = await name_element.text_content()
-        except Exception:
-            pass
+        # 等待页面加载完成
+        await page.wait_for_timeout(3000)  # 等待3秒让页面完全加载
         
-        # 提取评分
-        try:
-            rating_element = await page.query_selector('[data-testid="rating"], .rating, .star-rating')
-            if rating_element:
-                rating_text = await rating_element.text_content()
-                # 尝试提取数字
-                import re
-                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                if rating_match:
-                    shop_info['rating'] = float(rating_match.group(1))
-        except Exception:
-            pass
+        # 提取店铺名称 - 使用更广泛的选择器
+        name_selectors = [
+            'h1',
+            '[data-testid="merchant-header"] h1',
+            '.merchant-header h1',
+            '[data-testid="merchant-name"]',
+            '.merchant-name',
+            '.restaurant-name',
+            '.store-name',
+            'header h1',
+            '.merchant-info h1',
+            '.merchant-title',
+            'div[class*="merchant"] h1',
+            'div[class*="restaurant"] h1'
+        ]
+        
+        for selector in name_selectors:
+            try:
+                name_element = await page.query_selector(selector)
+                if name_element:
+                    name_text = await name_element.text_content()
+                    if name_text and name_text.strip():
+                        shop_info['name'] = name_text.strip()
+                        logging.info(f"找到店铺名称: {shop_info['name']} (使用选择器: {selector})")
+                        break
+            except Exception:
+                continue
+        
+        # 如果还是没找到名称，尝试从页面标题获取
+        if not shop_info.get('name'):
+            try:
+                title = await page.title()
+                if title and 'ifood' in title.lower():
+                    # 从标题中提取店铺名称
+                    import re
+                    title_match = re.search(r'^([^-|]+)', title)
+                    if title_match:
+                        shop_info['name'] = title_match.group(1).strip()
+                        logging.info(f"从页面标题提取店铺名称: {shop_info['name']}")
+            except Exception:
+                pass
+        
+        # 提取评分 - 使用更广泛的选择器
+        rating_selectors = [
+            '[data-testid="rating"]',
+            '.rating',
+            '.star-rating',
+            '.merchant-rating',
+            '.restaurant-rating',
+            'div[class*="rating"]',
+            'span[class*="rating"]',
+            'div[class*="star"]'
+        ]
+        
+        for selector in rating_selectors:
+            try:
+                rating_element = await page.query_selector(selector)
+                if rating_element:
+                    rating_text = await rating_element.text_content()
+                    if rating_text:
+                        import re
+                        rating_match = re.search(r'(\d+[.,]\d+|\d+)', rating_text)
+                        if rating_match:
+                            rating_str = rating_match.group(1).replace(',', '.')
+                            shop_info['rating'] = float(rating_str)
+                            logging.info(f"找到评分: {shop_info['rating']} (使用选择器: {selector})")
+                            break
+            except Exception:
+                continue
         
         # 提取配送时间
-        try:
-            delivery_element = await page.query_selector('[data-testid="delivery-time"], .delivery-time')
-            if delivery_element:
-                shop_info['delivery_time'] = await delivery_element.text_content()
-        except Exception:
-            pass
+        delivery_selectors = [
+            '[data-testid="delivery-time"]',
+            '.delivery-time',
+            '.delivery-info',
+            'div[class*="delivery"]',
+            'span[class*="delivery"]',
+            'div[class*="time"]'
+        ]
+        
+        for selector in delivery_selectors:
+            try:
+                delivery_element = await page.query_selector(selector)
+                if delivery_element:
+                    delivery_text = await delivery_element.text_content()
+                    if delivery_text and delivery_text.strip():
+                        shop_info['delivery_time'] = delivery_text.strip()
+                        logging.info(f"找到配送时间: {shop_info['delivery_time']} (使用选择器: {selector})")
+                        break
+            except Exception:
+                continue
         
         # 提取配送费
-        try:
-            fee_element = await page.query_selector('[data-testid="delivery-fee"], .delivery-fee')
-            if fee_element:
-                shop_info['delivery_fee'] = await fee_element.text_content()
-        except Exception:
-            pass
+        fee_selectors = [
+            '[data-testid="delivery-fee"]',
+            '.delivery-fee',
+            '.delivery-cost',
+            'div[class*="fee"]',
+            'span[class*="fee"]',
+            'div[class*="cost"]'
+        ]
+        
+        for selector in fee_selectors:
+            try:
+                fee_element = await page.query_selector(selector)
+                if fee_element:
+                    fee_text = await fee_element.text_content()
+                    if fee_text and fee_text.strip():
+                        shop_info['delivery_fee'] = fee_text.strip()
+                        logging.info(f"找到配送费: {shop_info['delivery_fee']} (使用选择器: {selector})")
+                        break
+            except Exception:
+                continue
         
         # 提取地址
-        try:
-            address_element = await page.query_selector('[data-testid="address"], .address')
-            if address_element:
-                shop_info['address'] = await address_element.text_content()
-        except Exception:
-            pass
+        address_selectors = [
+            '[data-testid="address"]',
+            '.address',
+            '.merchant-address',
+            '.restaurant-address',
+            'div[class*="address"]',
+            'span[class*="address"]'
+        ]
+        
+        for selector in address_selectors:
+            try:
+                address_element = await page.query_selector(selector)
+                if address_element:
+                    address_text = await address_element.text_content()
+                    if address_text and address_text.strip():
+                        shop_info['address'] = address_text.strip()
+                        logging.info(f"找到地址: {shop_info['address']} (使用选择器: {selector})")
+                        break
+            except Exception:
+                continue
+        
+        # 记录找到的所有信息
+        logging.info(f"DOM解析提取到的店铺信息: {shop_info}")
         
         if shop_info:
-            logging.info(f"DOM解析成功提取店铺信息: {shop_info.get('name', '未知店铺')}")
             return shop_info
         else:
             return {"error": "NoShopInfo", "message": "未能从DOM中提取到店铺信息"}
@@ -1036,62 +1132,145 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
     try:
         menu_info = {"categories": []}
         
-        # 查找菜单分类
-        category_elements = await page.query_selector_all('[data-testid="category"], .category, .menu-category')
+        # 等待菜单加载
+        await page.wait_for_timeout(2000)  # 等待2秒让菜单加载
         
-        for category_element in category_elements:
+        # 查找菜单分类 - 使用更广泛的选择器
+        category_selectors = [
+            '[data-testid="category"]',
+            '.category',
+            '.menu-category',
+            '.product-category',
+            'section[class*="category"]',
+            'div[class*="category"]',
+            'section[class*="menu"]',
+            'div[class*="menu-section"]',
+            'div[class*="product-section"]',
+            '.menu-group',
+            '.product-group'
+        ]
+        
+        category_elements = []
+        for selector in category_selectors:
             try:
-                category_info = {}
-                
-                # 提取分类名称
-                category_name_element = await category_element.query_selector('h2, h3, .category-name')
-                if category_name_element:
-                    category_info['name'] = await category_name_element.text_content()
-                
-                # 提取该分类下的商品
-                item_elements = await category_element.query_selector_all('[data-testid="menu-item"], .menu-item, .product-item')
-                category_info['items'] = []
-                
-                for item_element in item_elements:
-                    try:
-                        item_info = {}
-                        
-                        # 商品名称
-                        name_element = await item_element.query_selector('.item-name, .product-name, h4')
-                        if name_element:
-                            item_info['name'] = await name_element.text_content()
-                        
-                        # 商品价格
-                        price_element = await item_element.query_selector('.price, .item-price')
-                        if price_element:
-                            price_text = await price_element.text_content()
-                            # 清理价格文本
-                            import re
-                            price_match = re.search(r'R\$\s*(\d+[,.]?\d*)', price_text)
-                            if price_match:
-                                item_info['price'] = price_match.group(0)
-                        
-                        # 商品描述
-                        desc_element = await item_element.query_selector('.description, .item-description')
-                        if desc_element:
-                            item_info['description'] = await desc_element.text_content()
-                        
-                        if item_info.get('name'):
-                            category_info['items'].append(item_info)
-                            
-                    except Exception as e:
-                        logging.warning(f"提取菜单项时出错: {str(e)}")
-                        continue
-                
-                if category_info.get('name') and category_info.get('items'):
-                    menu_info['categories'].append(category_info)
-                    
-            except Exception as e:
-                logging.warning(f"提取菜单分类时出错: {str(e)}")
+                elements = await page.query_selector_all(selector)
+                if elements:
+                    category_elements = elements
+                    logging.info(f"找到 {len(elements)} 个分类元素 (使用选择器: {selector})")
+                    break
+            except Exception:
                 continue
         
+        # 如果没找到分类，尝试查找所有商品
+        if not category_elements:
+            logging.info("未找到分类，尝试直接查找商品...")
+            item_selectors = [
+                '[data-testid="menu-item"]',
+                '.menu-item',
+                '.product-item',
+                '.dish-item',
+                'div[class*="product"]',
+                'div[class*="item"]',
+                'article[class*="product"]',
+                'article[class*="item"]'
+            ]
+            
+            all_items = []
+            for selector in item_selectors:
+                try:
+                    items = await page.query_selector_all(selector)
+                    if items:
+                        all_items = items
+                        logging.info(f"找到 {len(items)} 个商品 (使用选择器: {selector})")
+                        break
+                except Exception:
+                    continue
+            
+            if all_items:
+                # 创建一个通用分类
+                category_info = {
+                    'name': '菜单',
+                    'items': []
+                }
+                
+                for item_element in all_items:
+                    item_info = await _extract_item_info(item_element)
+                    if item_info.get('name'):
+                        category_info['items'].append(item_info)
+                
+                if category_info['items']:
+                    menu_info['categories'].append(category_info)
+        else:
+            # 处理找到的分类
+            for category_element in category_elements:
+                try:
+                    category_info = {}
+                    
+                    # 提取分类名称 - 使用更广泛的选择器
+                    name_selectors = [
+                        'h2', 'h3', 'h4',
+                        '.category-name',
+                        '.category-title',
+                        '.section-title',
+                        '.menu-title',
+                        'div[class*="title"]',
+                        'span[class*="title"]',
+                        'div[class*="name"]',
+                        'span[class*="name"]'
+                    ]
+                    
+                    for selector in name_selectors:
+                        try:
+                            name_element = await category_element.query_selector(selector)
+                            if name_element:
+                                name_text = await name_element.text_content()
+                                if name_text and name_text.strip():
+                                    category_info['name'] = name_text.strip()
+                                    break
+                        except Exception:
+                            continue
+                    
+                    # 如果没找到分类名称，使用默认名称
+                    if not category_info.get('name'):
+                        category_info['name'] = f'分类 {len(menu_info["categories"]) + 1}'
+                    
+                    # 提取该分类下的商品
+                    item_selectors = [
+                        '[data-testid="menu-item"]',
+                        '.menu-item',
+                        '.product-item',
+                        '.dish-item',
+                        'div[class*="product"]',
+                        'div[class*="item"]',
+                        'article[class*="product"]',
+                        'article[class*="item"]'
+                    ]
+                    
+                    category_info['items'] = []
+                    for selector in item_selectors:
+                        try:
+                            item_elements = await category_element.query_selector_all(selector)
+                            if item_elements:
+                                for item_element in item_elements:
+                                    item_info = await _extract_item_info(item_element)
+                                    if item_info.get('name'):
+                                        category_info['items'].append(item_info)
+                                break
+                        except Exception:
+                            continue
+                    
+                    if category_info.get('name') and category_info.get('items'):
+                        menu_info['categories'].append(category_info)
+                        logging.info(f"提取分类: {category_info['name']} ({len(category_info['items'])} 个商品)")
+                        
+                except Exception as e:
+                    logging.warning(f"提取菜单分类时出错: {str(e)}")
+                    continue
+        
+        # 记录结果
+        logging.info(f"DOM解析提取到的菜单信息: {len(menu_info['categories'])} 个分类")
+        
         if menu_info['categories']:
-            logging.info(f"DOM解析成功提取菜单信息: {len(menu_info['categories'])} 个分类")
             return menu_info
         else:
             return {"error": "NoMenuInfo", "message": "未能从DOM中提取到菜单信息"}
@@ -1099,6 +1278,93 @@ async def _extract_menu_info_from_dom(page) -> Dict[str, Any]:
     except Exception as e:
         logging.error(f"提取菜单信息失败: {str(e)}")
         return {"error": "MenuExtractionError", "message": f"提取菜单信息时出错: {str(e)}"}
+
+async def _extract_item_info(item_element) -> Dict[str, Any]:
+    """从单个商品元素中提取信息"""
+    try:
+        item_info = {}
+        
+        # 商品名称 - 使用更广泛的选择器
+        name_selectors = [
+            '.item-name',
+            '.product-name',
+            '.dish-name',
+            'h4', 'h5', 'h6',
+            'div[class*="name"]',
+            'span[class*="name"]',
+            'div[class*="title"]',
+            'span[class*="title"]',
+            '.name',
+            '.title'
+        ]
+        
+        for selector in name_selectors:
+            try:
+                name_element = await item_element.query_selector(selector)
+                if name_element:
+                    name_text = await name_element.text_content()
+                    if name_text and name_text.strip():
+                        item_info['name'] = name_text.strip()
+                        break
+            except Exception:
+                continue
+        
+        # 商品价格 - 使用更广泛的选择器
+        price_selectors = [
+            '.price',
+            '.item-price',
+            '.product-price',
+            '.cost',
+            'div[class*="price"]',
+            'span[class*="price"]',
+            'div[class*="cost"]',
+            'span[class*="cost"]'
+        ]
+        
+        for selector in price_selectors:
+            try:
+                price_element = await item_element.query_selector(selector)
+                if price_element:
+                    price_text = await price_element.text_content()
+                    if price_text:
+                        # 清理价格文本
+                        import re
+                        price_match = re.search(r'R\$\s*(\d+[,.]?\d*)', price_text)
+                        if price_match:
+                            item_info['price'] = price_match.group(0)
+                            break
+            except Exception:
+                continue
+        
+        # 商品描述 - 使用更广泛的选择器
+        desc_selectors = [
+            '.description',
+            '.item-description',
+            '.product-description',
+            '.dish-description',
+            'div[class*="description"]',
+            'span[class*="description"]',
+            'p[class*="description"]',
+            '.desc',
+            'p'
+        ]
+        
+        for selector in desc_selectors:
+            try:
+                desc_element = await item_element.query_selector(selector)
+                if desc_element:
+                    desc_text = await desc_element.text_content()
+                    if desc_text and desc_text.strip() and desc_text.strip() != item_info.get('name', ''):
+                        item_info['description'] = desc_text.strip()
+                        break
+            except Exception:
+                continue
+        
+        return item_info
+        
+    except Exception as e:
+        logging.warning(f"提取商品信息时出错: {str(e)}")
+        return {}
 
 async def get_catalog_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
@@ -1116,29 +1382,49 @@ async def get_shop_info_from_url(target_url: str, proxy_config: Optional[Dict[st
 
 async def get_shop_all_from_url(target_url: str, proxy_config: Optional[Dict[str, str]]) -> Dict[str, Any]:
     """
-    使用重构后的抓取逻辑访问iFood页面，并同时拦截菜单目录API和商户信息API的响应。
-    如果API拦截失败，则使用DOM解析作为备用方案。
+    优先使用DOM解析策略访问iFood页面，如果失败则回退到API拦截。
     """
+    # 首先尝试DOM解析策略（更可靠）
+    logging.info("使用DOM解析策略作为主要方案...")
+    dom_result = await _scrape_ifood_page_dom_fallback(target_url, proxy_config)
+    
+    # 检查DOM解析是否成功
+    dom_success = (
+        isinstance(dom_result.get("shop_info"), dict) and 
+        "error" not in dom_result.get("shop_info", {}) and
+        isinstance(dom_result.get("menu"), dict) and 
+        "error" not in dom_result.get("menu", {})
+    )
+    
+    if dom_success:
+        logging.info("DOM解析策略成功，返回结果")
+        return dom_result
+    
+    # 如果DOM解析失败，尝试API拦截作为备用方案
+    logging.info("DOM解析部分失败，尝试API拦截备用方案...")
     api_patterns = {
         "menu": re.compile(r"merchants/.*/catalog"),
         "shop_info": re.compile(r"merchant-info/graphql")
     }
     
-    # 首先尝试API拦截策略
-    result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
+    api_result = await _scrape_ifood_page(target_url, proxy_config, api_patterns)
     
-    # 如果所有API都超时，尝试DOM解析备用方案
-    all_timeout = all(
-        isinstance(v, dict) and v.get("error") == "ResponseError" and "TimeoutError" in v.get("message", "")
-        for v in result.values()
-    )
+    # 合并结果：优先使用成功的DOM结果，失败的部分使用API结果
+    final_result = {}
     
-    if all_timeout:
-        logging.info("API拦截超时，尝试DOM解析备用方案...")
-        fallback_result = await _scrape_ifood_page_dom_fallback(target_url, proxy_config)
-        return fallback_result
+    # 店铺信息：优先DOM，失败则用API
+    if isinstance(dom_result.get("shop_info"), dict) and "error" not in dom_result.get("shop_info", {}):
+        final_result["shop_info"] = dom_result["shop_info"]
+    else:
+        final_result["shop_info"] = api_result.get("shop_info", dom_result.get("shop_info", {}))
     
-    return result
+    # 菜单信息：优先DOM，失败则用API
+    if isinstance(dom_result.get("menu"), dict) and "error" not in dom_result.get("menu", {}):
+        final_result["menu"] = dom_result["menu"]
+    else:
+        final_result["menu"] = api_result.get("menu", dom_result.get("menu", {}))
+    
+    return final_result
 
 # --- API 端点 ---
 
