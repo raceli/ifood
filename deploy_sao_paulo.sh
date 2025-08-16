@@ -125,7 +125,6 @@ API_TOKEN="$API_TOKEN",\
 USE_GCP_NATURAL_IP_ROTATION="true",\
 LOG_LEVEL="INFO",\
 FUNCTION_REGION="$REGION",\
-K_SERVICE="$SERVICE_NAME",\
 DISABLE_PROXY="true" \
         --quiet
     
@@ -196,7 +195,7 @@ show_deployment_info() {
     echo ""
     echo "🚀 防封禁特性已启用:"
     echo "  ✅ GCP自然IP轮换 (圣保罗机房)"
-    echo "  ✅ 智能代理管理"
+    echo "  🚫 代理功能已禁用 (专注GCP IP轮换)"
     echo "  ✅ 浏览器指纹伪装"
     echo "  ✅ 人类行为模拟"
     echo "  ✅ JavaScript反检测"
