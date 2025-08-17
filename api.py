@@ -930,13 +930,45 @@ async def _scrape_ifood_page(
             # 记录开始时间（用于计算响应时间）
             start_time = time.time()
 
-            # 先导航到页面，让反机器人系统初始化
-            logging.info("先导航到页面，等待反机器人系统初始化...")
-            await page.goto(target_url, wait_until='domcontentloaded', timeout=request_timeout)
+            # 先导航到页面，确保完全渲染
+            logging.info("导航到页面并等待完全渲染...")
+            await page.goto(target_url, wait_until='networkidle', timeout=request_timeout)
             
-            # 等待反机器人系统加载和初始化
-            logging.info("等待反机器人系统初始化...")
-            await page.wait_for_timeout(5000)  # 等待5秒让PX系统初始化
+            # 等待页面完全加载，包括所有JavaScript
+            logging.info("等待页面完全加载和JavaScript执行...")
+            await page.wait_for_timeout(8000)  # 增加到8秒
+            
+            # 等待关键元素出现，确保页面渲染完成
+            try:
+                logging.info("等待关键页面元素出现...")
+                await page.wait_for_selector('body', timeout=10000)
+                await page.wait_for_function('document.readyState === "complete"', timeout=10000)
+                logging.info("页面渲染状态检查完成")
+            except Exception as e:
+                logging.warning(f"等待页面元素时出错: {e}")
+            
+            # 模拟真实用户行为
+            logging.info("模拟真实用户行为...")
+            try:
+                # 滚动页面
+                await page.evaluate('window.scrollTo(0, 300)')
+                await page.wait_for_timeout(1000)
+                await page.evaluate('window.scrollTo(0, 0)')
+                await page.wait_for_timeout(1000)
+                
+                # 鼠标移动和点击
+                await page.mouse.move(200, 200)
+                await page.wait_for_timeout(500)
+                await page.mouse.move(400, 300)
+                await page.wait_for_timeout(500)
+                
+                logging.info("用户行为模拟完成")
+            except Exception as e:
+                logging.warning(f"模拟用户行为时出错: {e}")
+            
+            # 再等待一段时间让反机器人系统完全初始化
+            logging.info("等待反机器人系统完全初始化...")
+            await page.wait_for_timeout(5000)
             
             # 检查是否有PX相关的cookies
             cookies = await page.context.cookies()
@@ -985,9 +1017,29 @@ async def _scrape_ifood_page(
                 for pattern in api_patterns.values()
             ]
             
-            # 重新加载页面以触发API调用
-            logging.info("重新加载页面以触发API调用...")
-            navigation_awaitable = page.reload(wait_until='commit', timeout=request_timeout)
+            # 不重新加载页面，而是通过JavaScript触发API调用
+            logging.info("通过页面交互触发API调用...")
+            try:
+                # 尝试点击页面上的元素来触发API调用
+                await page.evaluate('''
+                    // 尝试触发页面上的事件来激活API调用
+                    window.dispatchEvent(new Event('focus'));
+                    window.dispatchEvent(new Event('load'));
+                    
+                    // 如果页面有特定的触发器，尝试调用
+                    if (window.location.reload) {
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 100);
+                    }
+                ''')
+                
+                # 等待API调用被触发
+                navigation_awaitable = page.wait_for_load_state('networkidle', timeout=request_timeout)
+                
+            except Exception as e:
+                logging.warning(f"JavaScript触发失败，回退到页面重新加载: {e}")
+                navigation_awaitable = page.reload(wait_until='networkidle', timeout=request_timeout)
             
             all_results = await asyncio.gather(
                 *response_awaitables, navigation_awaitable, return_exceptions=True
