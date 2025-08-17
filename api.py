@@ -842,14 +842,23 @@ async def _scrape_ifood_page(
                     await route.abort()
                     return
                 
-                # 如果是iFood的API请求，并且缺少地理位置参数，则修改URL
-                if ("cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url) and ("latitude=&" in url or "longitude=&" in url):
-                    # 修改URL，添加圣保罗坐标
-                    modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
-                    logging.info(f"🔧 修改API请求URL: {url} -> {modified_url}")
+                # 如果是iFood的API请求，记录详细信息并修改
+                if "cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url:
+                    # 记录原始请求详情
+                    logging.info(f"📡 拦截到iFood API请求:")
+                    logging.info(f"  URL: {url}")
+                    logging.info(f"  方法: {request.method}")
+                    logging.info(f"  请求头: {dict(request.headers)}")
+                    if request.post_data:
+                        logging.info(f"  POST数据: {request.post_data}")
                     
-                    # 继续请求但使用修改后的URL
-                    await route.continue_(url=modified_url)
+                    # 如果缺少地理位置参数，则修改URL
+                    if "latitude=&" in url or "longitude=&" in url:
+                        modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
+                        logging.info(f"🔧 修改API请求URL: {url} -> {modified_url}")
+                        await route.continue_(url=modified_url)
+                    else:
+                        await route.continue_()
                 else:
                     # 正常继续请求
                     await route.continue_()
@@ -1134,14 +1143,23 @@ async def _scrape_ifood_page_dom_fallback(
                     await route.abort()
                     return
                 
-                # 如果是iFood的API请求，并且缺少地理位置参数，则修改URL
-                if ("cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url) and ("latitude=&" in url or "longitude=&" in url):
-                    # 修改URL，添加圣保罗坐标
-                    modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
-                    logging.info(f"🔧 DOM备用方案：修改API请求URL: {url} -> {modified_url}")
+                # 如果是iFood的API请求，记录详细信息并修改（DOM备用方案）
+                if "cw-marketplace.ifood.com.br" in url or "merchant-info/graphql" in url:
+                    # 记录原始请求详情
+                    logging.info(f"📡 DOM备用方案：拦截到iFood API请求:")
+                    logging.info(f"  URL: {url}")
+                    logging.info(f"  方法: {request.method}")
+                    logging.info(f"  请求头: {dict(request.headers)}")
+                    if request.post_data:
+                        logging.info(f"  POST数据: {request.post_data}")
                     
-                    # 继续请求但使用修改后的URL
-                    await route.continue_(url=modified_url)
+                    # 如果缺少地理位置参数，则修改URL
+                    if "latitude=&" in url or "longitude=&" in url:
+                        modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
+                        logging.info(f"🔧 DOM备用方案：修改API请求URL: {url} -> {modified_url}")
+                        await route.continue_(url=modified_url)
+                    else:
+                        await route.continue_()
                 else:
                     # 正常继续请求
                     await route.continue_()
