@@ -852,13 +852,34 @@ async def _scrape_ifood_page(
                     if request.post_data:
                         logging.info(f"  POST数据: {request.post_data}")
                     
-                    # 如果缺少地理位置参数，则修改URL
+                    # 准备修改后的URL和请求头
+                    modified_url = url
                     if "latitude=&" in url or "longitude=&" in url:
                         modified_url = url.replace("latitude=&longitude=", "latitude=-23.5505&longitude=-46.6333")
                         logging.info(f"🔧 修改API请求URL: {url} -> {modified_url}")
-                        await route.continue_(url=modified_url)
-                    else:
-                        await route.continue_()
+                    
+                    # 添加关键的iFood请求头
+                    import uuid
+                    import time
+                    
+                    additional_headers = {
+                        'X-Ifood-Session-Id': str(uuid.uuid4()),
+                        'X-Ifood-Device-Id': str(uuid.uuid4()),
+                        'x-client-application-key': '41a266ee-51b7-4c37-9e9d-5cd331f280d5',
+                        'platform': 'Desktop',
+                        'app_version': '9.126.0',
+                        'browser': 'Mac OS',
+                        'x-device-model': 'Macintosh Chrome',
+                        'Accept': 'application/json, text/plain, */*',
+                        'Content-Type': 'application/json',
+                        'Referer': 'https://www.ifood.com.br/',
+                        'Origin': 'https://www.ifood.com.br'
+                    }
+                    
+                    logging.info(f"🔧 添加关键请求头: {additional_headers}")
+                    
+                    # 继续请求并添加请求头
+                    await route.continue_(url=modified_url, headers={**dict(request.headers), **additional_headers})
                 else:
                     # 正常继续请求
                     await route.continue_()
@@ -866,12 +887,23 @@ async def _scrape_ifood_page(
             # 应用统一的请求拦截器
             await page.route("**/*", handle_api_request)
             
-            # 设置更宽松的网络策略，减少超时
+            # 设置更宽松的网络策略，减少超时，并添加iFood特定的请求头
             await page.set_extra_http_headers({
-                'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'Accept-Language': 'pt-BR,pt;q=1',
+                'Accept-Encoding': 'gzip, deflate, br, zstd',
+                'Cache-Control': 'no-cache, no-store',
+                'Pragma': 'no-cache',
+                'Accept': 'application/json, text/plain, */*',
+                'Content-Type': 'application/json',
+                'Referer': 'https://www.ifood.com.br/',
+                'platform': 'Desktop',
+                'app_version': '9.126.0',
+                'browser': 'Mac OS',
+                'x-device-model': 'Macintosh Chrome',
+                'Origin': 'https://www.ifood.com.br',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site'
             })
             
             logging.info(f"正在导航到: {target_url}")
