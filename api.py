@@ -932,7 +932,12 @@ async def _scrape_ifood_page(
 
             # 先导航到页面，确保完全渲染
             logging.info("导航到页面并等待完全渲染...")
-            await page.goto(target_url, wait_until='networkidle', timeout=request_timeout)
+            try:
+                await page.goto(target_url, wait_until='networkidle', timeout=request_timeout)
+                logging.info("页面导航成功，等待网络空闲完成")
+            except Exception as e:
+                logging.warning(f"networkidle等待失败，回退到domcontentloaded: {e}")
+                await page.goto(target_url, wait_until='domcontentloaded', timeout=request_timeout)
             
             # 等待页面完全加载，包括所有JavaScript
             logging.info("等待页面完全加载和JavaScript执行...")
