@@ -108,6 +108,9 @@ build_image() {
 deploy_service() {
     echo_info "部署到Cloud Run (圣保罗机房)..."
     
+    # 添加时间戳强制创建新版本
+    TIMESTAMP=$(date +%s)
+    
     gcloud run deploy $SERVICE_NAME \
         --image $IMAGE_NAME \
         --platform managed \
@@ -125,7 +128,17 @@ API_TOKEN="$API_TOKEN",\
 USE_GCP_NATURAL_IP_ROTATION="true",\
 LOG_LEVEL="INFO",\
 FUNCTION_REGION="$REGION",\
-DISABLE_PROXY="true" \
+DISABLE_PROXY="true",\
+DEPLOY_TIMESTAMP="$TIMESTAMP" \
+        --no-traffic \
+        --tag="v$TIMESTAMP" \
+        --quiet
+    
+    # 将流量切换到新版本
+    echo_info "将流量切换到新版本..."
+    gcloud run services update-traffic $SERVICE_NAME \
+        --to-tags="v$TIMESTAMP=100" \
+        --region=$REGION \
         --quiet
     
     echo_success "服务部署完成"
