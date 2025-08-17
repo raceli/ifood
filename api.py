@@ -876,14 +876,22 @@ async def _scrape_ifood_page(
                         'Origin': 'https://www.ifood.com.br'
                     }
                     
-                    # 检查并添加PX cookies（如果存在）
+                    # 检查并处理cookies
                     try:
-                        # 注意：这里我们不能直接访问page，所以先记录现有的cookie头
                         existing_cookie = request.headers.get('cookie', '')
                         if existing_cookie:
-                            logging.info(f"🍪 现有Cookie头: {existing_cookie}")
+                            logging.info(f"🍪 现有Cookie头: {existing_cookie[:200]}...")
+                            # 检查是否包含PX相关cookies
+                            if '_px' in existing_cookie or 'pxcts' in existing_cookie:
+                                logging.info("✅ 检测到PX相关cookies在请求中")
+                            else:
+                                logging.warning("⚠️ 请求中缺少PX相关cookies")
                         else:
-                            logging.warning("⚠️ 请求中缺少Cookie头，可能导致403错误")
+                            logging.warning("⚠️ 请求中完全缺少Cookie头，可能导致403错误")
+                            
+                            # 尝试从页面上下文获取cookies并添加到请求中
+                            # 注意：这是一个尝试性的修复，可能需要进一步调整
+                            logging.info("尝试从页面上下文获取cookies...")
                     except Exception as e:
                         logging.warning(f"检查Cookie时出错: {e}")
                     
@@ -933,10 +941,35 @@ async def _scrape_ifood_page(
             # 检查是否有PX相关的cookies
             cookies = await page.context.cookies()
             px_cookies = [c for c in cookies if 'px' in c['name'].lower()]
+            all_cookies = [c for c in cookies if c['domain'] in ['.ifood.com.br', 'ifood.com.br', '.cw-marketplace.ifood.com.br']]
+            
             if px_cookies:
                 logging.info(f"检测到PX反机器人cookies: {[c['name'] for c in px_cookies]}")
+                for cookie in px_cookies:
+                    logging.info(f"  PX Cookie: {cookie['name']} = {cookie['value'][:50]}...")
             else:
                 logging.warning("未检测到PX反机器人cookies，可能会导致403错误")
+            
+            if all_cookies:
+                logging.info(f"检测到所有相关cookies: {[c['name'] for c in all_cookies]}")
+            else:
+                logging.warning("未检测到任何相关cookies")
+                
+            # 尝试手动触发一些页面交互来激活PX系统
+            try:
+                logging.info("尝试触发页面交互以激活PX系统...")
+                await page.mouse.move(100, 100)
+                await page.wait_for_timeout(1000)
+                await page.mouse.move(200, 200)
+                await page.wait_for_timeout(2000)
+                
+                # 再次检查cookies
+                cookies_after = await page.context.cookies()
+                px_cookies_after = [c for c in cookies_after if 'px' in c['name'].lower()]
+                if len(px_cookies_after) > len(px_cookies):
+                    logging.info(f"页面交互后新增PX cookies: {[c['name'] for c in px_cookies_after if c not in px_cookies]}")
+            except Exception as e:
+                logging.warning(f"页面交互时出错: {e}")
             
             # 现在设置API拦截并重新加载页面以触发API调用
             logging.info(f"开始设置API拦截模式，等待以下API响应:")
