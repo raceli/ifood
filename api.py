@@ -876,6 +876,17 @@ async def _scrape_ifood_page(
                         'Origin': 'https://www.ifood.com.br'
                     }
                     
+                    # 检查并添加PX cookies（如果存在）
+                    try:
+                        # 注意：这里我们不能直接访问page，所以先记录现有的cookie头
+                        existing_cookie = request.headers.get('cookie', '')
+                        if existing_cookie:
+                            logging.info(f"🍪 现有Cookie头: {existing_cookie}")
+                        else:
+                            logging.warning("⚠️ 请求中缺少Cookie头，可能导致403错误")
+                    except Exception as e:
+                        logging.warning(f"检查Cookie时出错: {e}")
+                    
                     logging.info(f"🔧 添加关键请求头: {additional_headers}")
                     
                     # 继续请求并添加请求头
@@ -911,7 +922,23 @@ async def _scrape_ifood_page(
             # 记录开始时间（用于计算响应时间）
             start_time = time.time()
 
-            # 设置更合理的超时时间 - 完全依赖API拦截，不等待DOM
+            # 先导航到页面，让反机器人系统初始化
+            logging.info("先导航到页面，等待反机器人系统初始化...")
+            await page.goto(target_url, wait_until='domcontentloaded', timeout=request_timeout)
+            
+            # 等待反机器人系统加载和初始化
+            logging.info("等待反机器人系统初始化...")
+            await page.wait_for_timeout(5000)  # 等待5秒让PX系统初始化
+            
+            # 检查是否有PX相关的cookies
+            cookies = await page.context.cookies()
+            px_cookies = [c for c in cookies if 'px' in c['name'].lower()]
+            if px_cookies:
+                logging.info(f"检测到PX反机器人cookies: {[c['name'] for c in px_cookies]}")
+            else:
+                logging.warning("未检测到PX反机器人cookies，可能会导致403错误")
+            
+            # 现在设置API拦截并重新加载页面以触发API调用
             logging.info(f"开始设置API拦截模式，等待以下API响应:")
             for key, pattern in api_patterns.items():
                 logging.info(f"  - {key}: {pattern.pattern}")
@@ -924,11 +951,10 @@ async def _scrape_ifood_page(
                 )
                 for pattern in api_patterns.values()
             ]
-            navigation_awaitable = page.goto(
-                target_url, 
-                wait_until='commit',  # 只等待导航开始，不等待DOM加载
-                timeout=request_timeout  # 使用环境变量配置的导航超时时间
-            )
+            
+            # 重新加载页面以触发API调用
+            logging.info("重新加载页面以触发API调用...")
+            navigation_awaitable = page.reload(wait_until='commit', timeout=request_timeout)
             
             all_results = await asyncio.gather(
                 *response_awaitables, navigation_awaitable, return_exceptions=True
